@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "shadcn-studio-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "shadcn-studio-mcp@latest",
+        "API_KEY=E626A254-2A8A-4656-A9FD-2363C58E6DCD",
+        "EMAIL=willw@trilogycare.com.au"
+      ]
+    }
+  }
+}
