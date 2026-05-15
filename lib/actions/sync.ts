@@ -3,10 +3,17 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, gt, inArray, notInArray, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { jiraConfigFromEnv, fetchActiveAndFutureSprints, fetchIssuesForSprint } from "@/lib/jira/client";
+import {
+  jiraConfigFromEnv,
+  fetchActiveAndFutureSprints,
+  fetchIssueChangelog,
+  fetchIssuesForSprint,
+} from "@/lib/jira/client";
 import { parseIssueIntoTicket, parseSprintList } from "@/lib/jira/parsers";
 import { deriveTeam } from "@/lib/sync/team-derivation";
 import { buildSyncWrite } from "@/lib/sync/reducer";
+import { committedCutoff } from "@/lib/sprint/cutoff";
+import { wasInSprintAt } from "@/lib/jira/sprint-history";
 
 export interface SyncResult {
   ok: boolean;
@@ -73,12 +80,46 @@ export async function syncFromJira(): Promise<SyncResult> {
         .map((s) => [s.id, { baselinePoints: s.baselinePoints!, baselineCapturedAt: s.baselineCapturedAt! }]),
     );
 
+    const existingCommitments = new Map(
+      existingSprintRows
+        .filter((s) => s.committedTicketKeys != null && s.committedCapturedAt != null)
+        .map((s) => [s.id, { ticketKeys: s.committedTicketKeys!, capturedAt: s.committedCapturedAt! }]),
+    );
+
+    const now = new Date();
+
+    // For each sprint past its Monday 8AM Brisbane cutoff with no existing commitment, reconstruct
+    // the ticket set that was in the sprint at cutoff using each ticket's Jira changelog.
+    const commitmentFreezes = new Map<string, string[]>();
+    for (let i = 0; i < parsedSprints.length; i++) {
+      const s = parsedSprints[i];
+      if (existingCommitments.has(s.id)) continue;
+      const cutoff = committedCutoff(s.startDate);
+      if (!cutoff || now.getTime() < cutoff.getTime()) continue;
+
+      const sprintIssues = allIssues[i].issues;
+      const committedKeys: string[] = [];
+      for (const issue of sprintIssues) {
+        const changelogResp = await fetchIssueChangelog(cfg, issue.key);
+        const inAtCutoff = wasInSprintAt({
+          sprintId: s.id,
+          issueCreated: issue.fields.created,
+          changelog: changelogResp.values,
+          at: cutoff,
+        });
+        if (inAtCutoff) committedKeys.push(issue.key);
+      }
+      commitmentFreezes.set(s.id, committedKeys);
+    }
+
     const write = buildSyncWrite({
       sprints: parsedSprints,
       tickets: parsedTickets,
       assignees: team,
       existingBaselines,
-      now: new Date(),
+      existingCommitments,
+      commitmentFreezes,
+      now,
     });
 
     await db.transaction(async (tx) => {
@@ -92,6 +133,8 @@ export async function syncFromJira(): Promise<SyncResult> {
             endDate: sql`excluded.end_date`,
             baselinePoints: sql`excluded.baseline_points`,
             baselineCapturedAt: sql`excluded.baseline_captured_at`,
+            committedTicketKeys: sql`excluded.committed_ticket_keys`,
+            committedCapturedAt: sql`excluded.committed_captured_at`,
             jiraBoardId: sql`excluded.jira_board_id`,
           },
         });
