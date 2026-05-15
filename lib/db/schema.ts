@@ -61,6 +61,7 @@ export const burndownSnapshots = pgTable(
       .defaultNow(),
     remainingPoints: integer("remaining_points").notNull(),
     totalPoints: integer("total_points").notNull(),
+    committedRemainingPoints: integer("committed_remaining_points"),
   },
   (t) => [
     index("burndown_snapshots_sprint_captured_idx").on(t.sprintId, t.capturedAt),

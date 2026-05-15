@@ -69,15 +69,32 @@ export async function getBurndown(sprintId: string): Promise<BurndownPoint[]> {
     .select({
       forDate: schema.burndownSnapshots.forDate,
       remainingPoints: schema.burndownSnapshots.remainingPoints,
+      committedRemainingPoints: schema.burndownSnapshots.committedRemainingPoints,
     })
     .from(schema.burndownSnapshots)
     .where(eq(schema.burndownSnapshots.sprintId, sprintId))
     .orderBy(schema.burndownSnapshots.forDate);
+
+  // committed baseline = current sum of points for tickets in the frozen set. Re-estimates
+  // of committed tickets flow through (matching pointsCommitted semantics in sprintKpis).
+  let committedBaselinePoints: number | null = null;
+  if (sprint.committedTicketKeys && sprint.committedTicketKeys.length > 0) {
+    const committedSet = new Set(sprint.committedTicketKeys);
+    const rows = await db
+      .select({ key: schema.tickets.key, points: schema.tickets.points })
+      .from(schema.tickets)
+      .where(eq(schema.tickets.sprintId, sprintId));
+    committedBaselinePoints = rows
+      .filter((t) => committedSet.has(t.key))
+      .reduce((sum, t) => sum + t.points, 0);
+  }
+
   return projectBurndown({
     sprint: {
       startDate: sprint.startDate,
       endDate: sprint.endDate,
       baselinePoints: sprint.baselinePoints,
+      committedBaselinePoints,
     },
     snapshots,
   });

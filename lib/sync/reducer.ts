@@ -34,6 +34,7 @@ export interface BurndownSnapshotInsert {
   capturedAt: Date;
   remainingPoints: number;
   totalPoints: number;
+  committedRemainingPoints: number | null;
 }
 
 export interface SyncWriteInput {
@@ -113,7 +114,26 @@ export function buildSyncWrite(input: SyncWriteInput): SyncWriteOutput {
       .filter((t) => REMAINING_STATUSES.has(t.status))
       .reduce((sum, t) => sum + t.points, 0);
     const totalPoints = sprintTickets.reduce((sum, t) => sum + t.points, 0);
-    return { sprintId: s.id, forDate: now.toISOString().slice(0, 10), capturedAt: now, remainingPoints, totalPoints };
+
+    // If this sprint has (or is gaining) a frozen committed-ticket set, compute remaining
+    // restricted to those tickets. Otherwise leave null and consumers fall back to the
+    // unrestricted figure above.
+    const committedKeys =
+      existingCommitments.get(s.id)?.ticketKeys ?? commitmentFreezes.get(s.id) ?? null;
+    const committedRemainingPoints = committedKeys
+      ? sprintTickets
+          .filter((t) => REMAINING_STATUSES.has(t.status) && committedKeys.includes(t.key))
+          .reduce((sum, t) => sum + t.points, 0)
+      : null;
+
+    return {
+      sprintId: s.id,
+      forDate: now.toISOString().slice(0, 10),
+      capturedAt: now,
+      remainingPoints,
+      totalPoints,
+      committedRemainingPoints,
+    };
   });
 
   return {

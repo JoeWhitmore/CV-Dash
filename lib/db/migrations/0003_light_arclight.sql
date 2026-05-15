@@ -1,0 +1,1 @@
+ALTER TABLE "burndown_snapshots" ADD COLUMN "committed_remaining_points" integer;

@@ -6,12 +6,25 @@ export interface ProjectBurndownInput {
     startDate: string | null;
     endDate: string | null;
     baselinePoints: number | null;
+    /**
+     * When set, the ideal line uses this as its starting value and the actual line uses
+     * each snapshot's `committedRemainingPoints`. Both metrics are then locked to the
+     * committed-ticket scope (= the set frozen at Monday 8AM Brisbane). When null, the
+     * function falls back to the unrestricted baseline + remainingPoints.
+     */
+    committedBaselinePoints: number | null;
   };
   /**
    * One snapshot per (sprint, working day). `forDate` is the ISO date the snapshot
    * represents — i.e. the working day for which `remainingPoints` is the end-of-day total.
+   * `committedRemainingPoints` is the remaining-points figure restricted to the committed
+   * ticket set; null for snapshots captured before the sprint's freeze was established.
    */
-  snapshots: Array<{ forDate: string; remainingPoints: number }>;
+  snapshots: Array<{
+    forDate: string;
+    remainingPoints: number;
+    committedRemainingPoints: number | null;
+  }>;
 }
 
 /**
@@ -27,7 +40,11 @@ export function projectBurndown(input: ProjectBurndownInput): BurndownPoint[] {
   const workingDays = enumerateWorkingDays(sprint.startDate, sprint.endDate);
   if (workingDays.length === 0) return [];
 
-  const baseline = sprint.baselinePoints ?? 0;
+  // Use the committed scope when present (= frozen at Monday 8AM Brisbane). The actual line
+  // pulls each snapshot's committedRemainingPoints; the ideal line drops from
+  // committedBaselinePoints to 0 across working days.
+  const useCommitted = sprint.committedBaselinePoints != null;
+  const baseline = useCommitted ? sprint.committedBaselinePoints! : (sprint.baselinePoints ?? 0);
   const lastIndex = workingDays.length - 1;
 
   const idealAtIndex = (i: number) =>
@@ -46,7 +63,12 @@ export function projectBurndown(input: ProjectBurndownInput): BurndownPoint[] {
     if (!workingDaySet.has(target)) continue;
     const existing = byDate.get(target);
     if (!existing) continue;
-    byDate.set(target, { ...existing, remaining: s.remainingPoints });
+    // Prefer the committed value when the sprint is in committed mode; if a particular
+    // snapshot predates the freeze (committedRemainingPoints null) skip it rather than
+    // mixing scopes on one chart.
+    const remaining = useCommitted ? s.committedRemainingPoints : s.remainingPoints;
+    if (remaining == null) continue;
+    byDate.set(target, { ...existing, remaining });
   }
 
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));

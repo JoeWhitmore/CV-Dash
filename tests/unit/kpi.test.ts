@@ -104,4 +104,36 @@ describe("sprintKpis", () => {
     const kpis = sprintKpis(sprintWithFreeze, tickets, "2026-05-14");
     expect(kpis.pointsCommitted).toBe(8);
   });
+
+  it("when committedTicketKeys is set, pointsToPr only counts peer-review tickets that are in the committed list", () => {
+    const sprintWithFreeze: Sprint = {
+      ...sprint,
+      ticketKeys: ["CV-1", "CV-2", "CV-NEW"],
+      committedTicketKeys: ["CV-1", "CV-2"],
+    };
+    const tickets = [
+      ticket("CV-1", "peer-review", 3),    // committed + at PR -> counts (3)
+      ticket("CV-2", "in-progress", 5),    // committed but not at PR
+      ticket("CV-NEW", "peer-review", 99), // at PR but not committed -> excluded
+    ];
+    const kpis = sprintKpis(sprintWithFreeze, tickets, "2026-05-14");
+    expect(kpis.pointsToPr).toBe(3);
+    expect(kpis.pointsCommitted).toBe(8);
+    // 3 / 8 = 37.5%
+    expect(kpis.percentComplete).toBe(37.5);
+  });
+
+  it("when committedTicketKeys is null, pointsToPr falls back to all in-scope tickets at peer-review", () => {
+    const sprintWithoutFreeze: Sprint = {
+      ...sprint,
+      ticketKeys: ["CV-1", "CV-NEW"],
+      committedTicketKeys: null,
+    };
+    const tickets = [
+      ticket("CV-1", "peer-review", 3),
+      ticket("CV-NEW", "peer-review", 5),
+    ];
+    const kpis = sprintKpis(sprintWithoutFreeze, tickets, "2026-05-14");
+    expect(kpis.pointsToPr).toBe(8);
+  });
 });

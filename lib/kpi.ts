@@ -24,7 +24,12 @@ export function sprintKpis(sprint: Sprint, tickets: Ticket[], todayISO: string):
     ? inSprint.filter((t) => committedSet.has(t.key)).reduce((s, t) => s + t.points, 0)
     : inScope.reduce((s, t) => s + t.points, 0);
 
-  const pointsToPr = inScope.filter(isComplete).reduce((s, t) => s + t.points, 0);
+  // pointsToPr also respects the freeze: only committed tickets that reached peer-review count.
+  // This keeps the % complete denominator and numerator on the same scope.
+  const completedTickets = inSprint.filter(isComplete);
+  const pointsToPr = committedSet
+    ? completedTickets.filter((t) => committedSet.has(t.key)).reduce((s, t) => s + t.points, 0)
+    : completedTickets.reduce((s, t) => s + t.points, 0);
   const percentComplete =
     pointsCommitted === 0 ? 0 : Math.round((pointsToPr / pointsCommitted) * 1000) / 10;
 

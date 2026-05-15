@@ -150,4 +150,54 @@ describe("buildSyncWrite", () => {
     expect(result.sprintUpserts[0].committedTicketKeys).toBeNull();
     expect(result.sprintUpserts[0].committedCapturedAt).toBeNull();
   });
+
+  it("snapshot committedRemainingPoints is null when no commitment exists", () => {
+    const result = buildSyncWrite({
+      sprints: [sprint("42", "Sprint 42")],
+      tickets: [ticket("CV-1", "to-do", 3, "42"), ticket("CV-2", "in-progress", 5, "42")],
+      assignees: [],
+      existingBaselines: new Map(),
+      existingCommitments: new Map(),
+      commitmentFreezes: new Map(),
+      now: new Date("2026-05-15T12:00:00Z"),
+    });
+    expect(result.burndownSnapshots[0].committedRemainingPoints).toBeNull();
+  });
+
+  it("snapshot committedRemainingPoints sums in-status committed tickets when this run freezes the sprint", () => {
+    const result = buildSyncWrite({
+      sprints: [sprint("42", "Sprint 42")],
+      tickets: [
+        ticket("CV-1", "to-do", 3, "42"),       // committed + in-status -> counts (3)
+        ticket("CV-2", "in-progress", 5, "42"), // committed + in-status -> counts (5)
+        ticket("CV-3", "done", 7, "42"),        // committed but out-of-status -> excluded
+        ticket("CV-NEW", "to-do", 9, "42"),     // in-status but NOT committed -> excluded
+      ],
+      assignees: [],
+      existingBaselines: new Map(),
+      existingCommitments: new Map(),
+      commitmentFreezes: new Map([["42", ["CV-1", "CV-2", "CV-3"]]]),
+      now: new Date("2026-05-15T12:00:00Z"),
+    });
+    expect(result.burndownSnapshots[0].committedRemainingPoints).toBe(8); // 3 + 5
+    expect(result.burndownSnapshots[0].remainingPoints).toBe(17); // 3 + 5 + 9, unrestricted
+  });
+
+  it("snapshot committedRemainingPoints uses the existing commitment when no fresh freeze fires", () => {
+    const result = buildSyncWrite({
+      sprints: [sprint("42", "Sprint 42")],
+      tickets: [
+        ticket("CV-1", "to-do", 3, "42"),
+        ticket("CV-NEW", "to-do", 100, "42"),
+      ],
+      assignees: [],
+      existingBaselines: new Map(),
+      existingCommitments: new Map([
+        ["42", { ticketKeys: ["CV-1"], capturedAt: new Date("2026-05-10T00:00:00Z") }],
+      ]),
+      commitmentFreezes: new Map(),
+      now: new Date("2026-05-15T12:00:00Z"),
+    });
+    expect(result.burndownSnapshots[0].committedRemainingPoints).toBe(3);
+  });
 });

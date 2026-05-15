@@ -22,6 +22,13 @@
       "when": 1778827899755,
       "tag": "0002_burndown_per_day",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1778828950953,
+      "tag": "0003_light_arclight",
+      "breakpoints": true
     }
   ]
 }
