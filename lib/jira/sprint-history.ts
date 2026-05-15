@@ -1,3 +1,4 @@
+import { mapJiraStatus } from "@/lib/jira/status-map";
 import type { JiraChangelogEntry } from "@/lib/jira/types";
 
 export interface WasInSprintInput {
@@ -44,4 +45,46 @@ export function wasInSprintAt(input: WasInSprintInput): boolean {
 
   const last = sprintItems[sprintItems.length - 1];
   return parseSprintIds(last.sprintValue).has(sprintId);
+}
+
+export interface StatusAtTimeInput {
+  /** The ticket's current mapped status (e.g. "to-do") — used as a fallback when the changelog has no status transitions at all. */
+  currentStatus: string;
+  changelog: JiraChangelogEntry[];
+  at: Date;
+}
+
+/**
+ * Reconstructs the mapped status of a ticket at a target time by walking the status-field history.
+ *
+ * Algorithm:
+ *   1. Collect all status-field changelog items, sorted by created ASC.
+ *   2. If at least one transition exists with created <= at: return the latest's `toString` (mapped).
+ *   3. Else if any transitions exist (all after `at`): return the FIRST transition's `fromString` (mapped) —
+ *      that's the initial status before any transitions happened.
+ *   4. Else (no transitions ever): return `currentStatus` — the status has never changed.
+ */
+export function statusAtTime(input: StatusAtTimeInput): string {
+  const { currentStatus, changelog, at } = input;
+  const cutoff = at.getTime();
+
+  const statusItems = changelog
+    .flatMap((h) =>
+      h.items
+        .filter((i) => i.field === "status")
+        .map((i) => ({
+          created: new Date(h.created).getTime(),
+          toString: i.toString,
+          fromString: i.fromString,
+        })),
+    )
+    .sort((a, b) => a.created - b.created);
+
+  if (statusItems.length === 0) return currentStatus;
+
+  const before = statusItems.filter((x) => x.created <= cutoff);
+  if (before.length > 0) {
+    return mapJiraStatus(before[before.length - 1].toString ?? "").status;
+  }
+  return mapJiraStatus(statusItems[0].fromString ?? "").status;
 }

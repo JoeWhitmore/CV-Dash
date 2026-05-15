@@ -13,7 +13,20 @@ import { parseIssueIntoTicket, parseSprintList } from "@/lib/jira/parsers";
 import { deriveTeam } from "@/lib/sync/team-derivation";
 import { buildSyncWrite } from "@/lib/sync/reducer";
 import { committedCutoff } from "@/lib/sprint/cutoff";
-import { wasInSprintAt } from "@/lib/jira/sprint-history";
+import { statusAtTime, wasInSprintAt } from "@/lib/jira/sprint-history";
+import { mapJiraStatus } from "@/lib/jira/status-map";
+import { enumerateWorkingDays } from "@/lib/working-days";
+import type { JiraChangelogEntry, JiraIssue } from "@/lib/jira/types";
+
+const REMAINING_STATUSES_FOR_BURNDOWN = new Set(["to-do", "in-progress", "in-review"]);
+
+/**
+ * End-of-working-day Brisbane (UTC+10) as a UTC Date. e.g. "2026-05-11" → 2026-05-11 24:00 +10:00
+ * = 2026-05-11 14:00 UTC. Used to evaluate "what was the status at end of working day D".
+ */
+function endOfDayBrisbane(forDate: string): Date {
+  return new Date(`${forDate}T14:00:00Z`);
+}
 
 export interface SyncResult {
   ok: boolean;
@@ -89,8 +102,12 @@ export async function syncFromJira(): Promise<SyncResult> {
     const now = new Date();
 
     // For each sprint past its Monday 8AM Brisbane cutoff with no existing commitment, reconstruct
-    // the ticket set that was in the sprint at cutoff using each ticket's Jira changelog.
+    // the ticket set that was in the sprint at cutoff using each ticket's Jira changelog. While we
+    // have the changelogs in memory, also reconstruct historical committed_remaining per working
+    // day so the burndown's actual line has accurate values from day 1.
     const commitmentFreezes = new Map<string, string[]>();
+    const historicalCommittedRemaining: Array<{ sprintId: string; forDate: string; value: number }> = [];
+
     for (let i = 0; i < parsedSprints.length; i++) {
       const s = parsedSprints[i];
       if (existingCommitments.has(s.id)) continue;
@@ -99,10 +116,15 @@ export async function syncFromJira(): Promise<SyncResult> {
 
       const sprintIssues = allIssues[i].issues;
       const committedKeys: string[] = [];
+      const ticketChangelogs = new Map<string, JiraChangelogEntry[]>();
+      const ticketByKey = new Map<string, JiraIssue>();
+
       // One-time per sprint: this loop is skipped on all subsequent syncs once
       // committedTicketKeys is persisted (see the `existingCommitments.has(...)` check above).
       for (const issue of sprintIssues) {
         const changelogResp = await fetchIssueChangelog(cfg, issue.key);
+        ticketChangelogs.set(issue.key, changelogResp.values);
+        ticketByKey.set(issue.key, issue);
         const inAtCutoff = wasInSprintAt({
           sprintId: s.id,
           issueCreated: issue.fields.created,
@@ -112,6 +134,31 @@ export async function syncFromJira(): Promise<SyncResult> {
         if (inAtCutoff) committedKeys.push(issue.key);
       }
       commitmentFreezes.set(s.id, committedKeys);
+
+      // Replay each working day: for each committed ticket, ask the changelog what its status was
+      // at end-of-day Brisbane. Sum points for tickets that were in remaining-statuses at that
+      // moment. Cap at today (don't pre-populate future days).
+      if (s.startDate && s.endDate) {
+        const days = enumerateWorkingDays(s.startDate, s.endDate);
+        const todayKey = now.toISOString().slice(0, 10);
+        for (const day of days) {
+          if (day > todayKey) break;
+          let value = 0;
+          for (const key of committedKeys) {
+            const issue = ticketByKey.get(key);
+            const cl = ticketChangelogs.get(key);
+            if (!issue || !cl) continue;
+            const points = Number((issue.fields as Record<string, unknown>)[cfg.pointsField] ?? 0);
+            const status = statusAtTime({
+              currentStatus: mapJiraStatus(issue.fields.status.name).status,
+              changelog: cl,
+              at: endOfDayBrisbane(day),
+            });
+            if (REMAINING_STATUSES_FOR_BURNDOWN.has(status)) value += points;
+          }
+          historicalCommittedRemaining.push({ sprintId: s.id, forDate: day, value });
+        }
+      }
     }
 
     const write = buildSyncWrite({
@@ -185,6 +232,21 @@ export async function syncFromJira(): Promise<SyncResult> {
             capturedAt: sql`excluded.captured_at`,
           },
         });
+      }
+
+      // Backfill historical committed_remaining_points on past snapshots when this run is freshly
+      // freezing a sprint. We update existing rows only; we don't manufacture snapshots for days
+      // the team never synced. The reducer's snapshot for `now.forDate` is already correct above.
+      for (const h of historicalCommittedRemaining) {
+        await tx
+          .update(schema.burndownSnapshots)
+          .set({ committedRemainingPoints: h.value })
+          .where(
+            and(
+              eq(schema.burndownSnapshots.sprintId, h.sprintId),
+              eq(schema.burndownSnapshots.forDate, h.forDate),
+            ),
+          );
       }
     });
 

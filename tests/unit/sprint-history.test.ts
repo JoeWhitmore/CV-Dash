@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { wasInSprintAt } from "@/lib/jira/sprint-history";
+import { statusAtTime, wasInSprintAt } from "@/lib/jira/sprint-history";
 import type { JiraChangelogEntry } from "@/lib/jira/types";
+
+const statusChange = (created: string, from: string, to: string): JiraChangelogEntry => ({
+  id: created,
+  created,
+  items: [{ field: "status", from, fromString: from, to, toString: to }],
+});
 
 const sprintChange = (
   created: string,
@@ -113,5 +119,54 @@ describe("wasInSprintAt", () => {
         at: cutoff,
       }),
     ).toBe(false);
+  });
+});
+
+describe("statusAtTime", () => {
+  const at = new Date("2026-05-12T22:00:00Z");
+
+  it("returns currentStatus when changelog has no status transitions at all", () => {
+    expect(
+      statusAtTime({ currentStatus: "to-do", changelog: [], at }),
+    ).toBe("to-do");
+  });
+
+  it("returns the latest pre-cutoff status transition (mapped)", () => {
+    expect(
+      statusAtTime({
+        currentStatus: "done",
+        changelog: [
+          statusChange("2026-05-11T10:00:00Z", "To Do", "In Progress"),
+          statusChange("2026-05-12T10:00:00Z", "In Progress", "Peer Review"),
+          statusChange("2026-05-13T10:00:00Z", "Peer Review", "Done"), // after `at`
+        ],
+        at,
+      }),
+    ).toBe("peer-review");
+  });
+
+  it("returns the FIRST transition's fromString when all transitions happen after `at`", () => {
+    expect(
+      statusAtTime({
+        currentStatus: "in-progress",
+        changelog: [
+          statusChange("2026-05-13T10:00:00Z", "To Do", "In Progress"),
+          statusChange("2026-05-14T10:00:00Z", "In Progress", "Peer Review"),
+        ],
+        at,
+      }),
+    ).toBe("to-do");
+  });
+
+  it("ignores non-status changelog items", () => {
+    expect(
+      statusAtTime({
+        currentStatus: "to-do",
+        changelog: [
+          { id: "x", created: "2026-05-11T10:00:00Z", items: [{ field: "Sprint", from: "", fromString: "", to: "42", toString: "42" }] },
+        ],
+        at,
+      }),
+    ).toBe("to-do");
   });
 });
