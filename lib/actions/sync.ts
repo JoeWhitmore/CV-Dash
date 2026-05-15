@@ -174,7 +174,14 @@ export async function syncFromJira(): Promise<SyncResult> {
         );
       }
       if (write.burndownSnapshots.length > 0) {
-        await tx.insert(schema.burndownSnapshots).values(write.burndownSnapshots);
+        await tx.insert(schema.burndownSnapshots).values(write.burndownSnapshots).onConflictDoUpdate({
+          target: [schema.burndownSnapshots.sprintId, schema.burndownSnapshots.forDate],
+          set: {
+            remainingPoints: sql`excluded.remaining_points`,
+            totalPoints: sql`excluded.total_points`,
+            capturedAt: sql`excluded.captured_at`,
+          },
+        });
       }
     });
 

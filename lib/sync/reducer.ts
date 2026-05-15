@@ -30,6 +30,7 @@ export interface TicketUpsert {
 
 export interface BurndownSnapshotInsert {
   sprintId: string;
+  forDate: string;
   capturedAt: Date;
   remainingPoints: number;
   totalPoints: number;
@@ -112,7 +113,7 @@ export function buildSyncWrite(input: SyncWriteInput): SyncWriteOutput {
       .filter((t) => REMAINING_STATUSES.has(t.status))
       .reduce((sum, t) => sum + t.points, 0);
     const totalPoints = sprintTickets.reduce((sum, t) => sum + t.points, 0);
-    return { sprintId: s.id, capturedAt: now, remainingPoints, totalPoints };
+    return { sprintId: s.id, forDate: now.toISOString().slice(0, 10), capturedAt: now, remainingPoints, totalPoints };
   });
 
   return {
