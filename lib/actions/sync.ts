@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, gt, inArray, notInArray } from "drizzle-orm";
+import { and, eq, gt, inArray, notInArray, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { jiraConfigFromEnv, fetchActiveAndFutureSprints, fetchIssuesForSprint } from "@/lib/jira/client";
 import { parseIssueIntoTicket, parseSprintList } from "@/lib/jira/parsers";
@@ -82,28 +82,43 @@ export async function syncFromJira(): Promise<SyncResult> {
     });
 
     await db.transaction(async (tx) => {
-      for (const s of write.sprintUpserts) {
-        await tx.insert(schema.sprints).values(s).onConflictDoUpdate({
+      if (write.sprintUpserts.length > 0) {
+        await tx.insert(schema.sprints).values(write.sprintUpserts).onConflictDoUpdate({
           target: schema.sprints.id,
           set: {
-            name: s.name, state: s.state, startDate: s.startDate, endDate: s.endDate,
-            baselinePoints: s.baselinePoints, baselineCapturedAt: s.baselineCapturedAt, jiraBoardId: s.jiraBoardId,
+            name: sql`excluded.name`,
+            state: sql`excluded.state`,
+            startDate: sql`excluded.start_date`,
+            endDate: sql`excluded.end_date`,
+            baselinePoints: sql`excluded.baseline_points`,
+            baselineCapturedAt: sql`excluded.baseline_captured_at`,
+            jiraBoardId: sql`excluded.jira_board_id`,
           },
         });
       }
-      for (const m of write.teamUpserts) {
-        await tx.insert(schema.teamMembers).values(m).onConflictDoUpdate({
+      if (write.teamUpserts.length > 0) {
+        await tx.insert(schema.teamMembers).values(write.teamUpserts).onConflictDoUpdate({
           target: schema.teamMembers.jiraAccountId,
-          set: { id: m.id, name: m.name, initials: m.initials, avatarUrl: m.avatarUrl },
+          set: {
+            id: sql`excluded.id`,
+            name: sql`excluded.name`,
+            initials: sql`excluded.initials`,
+            avatarUrl: sql`excluded.avatar_url`,
+          },
         });
       }
-      for (const t of write.ticketUpserts) {
-        await tx.insert(schema.tickets).values(t).onConflictDoUpdate({
+      if (write.ticketUpserts.length > 0) {
+        await tx.insert(schema.tickets).values(write.ticketUpserts).onConflictDoUpdate({
           target: schema.tickets.key,
           set: {
-            title: t.title, type: t.type, status: t.status, points: t.points,
-            assigneeId: t.assigneeId, sprintId: t.sprintId,
-            jiraUpdatedAt: t.jiraUpdatedAt, lastSyncedAt: t.lastSyncedAt,
+            title: sql`excluded.title`,
+            type: sql`excluded.type`,
+            status: sql`excluded.status`,
+            points: sql`excluded.points`,
+            assigneeId: sql`excluded.assignee_id`,
+            sprintId: sql`excluded.sprint_id`,
+            jiraUpdatedAt: sql`excluded.jira_updated_at`,
+            lastSyncedAt: sql`excluded.last_synced_at`,
           },
         });
       }
@@ -115,8 +130,8 @@ export async function syncFromJira(): Promise<SyncResult> {
           ),
         );
       }
-      for (const snap of write.burndownSnapshots) {
-        await tx.insert(schema.burndownSnapshots).values(snap);
+      if (write.burndownSnapshots.length > 0) {
+        await tx.insert(schema.burndownSnapshots).values(write.burndownSnapshots);
       }
     });
 
