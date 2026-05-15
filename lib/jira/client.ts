@@ -1,4 +1,9 @@
-import type { JiraIssueSearchResponse, JiraSprintListResponse } from "@/lib/jira/types";
+import type {
+  JiraChangelogEntry,
+  JiraIssueChangelogResponse,
+  JiraIssueSearchResponse,
+  JiraSprintListResponse,
+} from "@/lib/jira/types";
 
 export interface JiraConfig {
   baseUrl: string;
@@ -12,7 +17,7 @@ export class JiraAuthError extends Error {}
 export class JiraRateLimitError extends Error {}
 export class JiraTransportError extends Error {}
 
-const FIELDS = ["summary", "status", "issuetype", "assignee", "updated"];
+const FIELDS = ["summary", "status", "issuetype", "assignee", "updated", "created"];
 
 function authHeader(email: string, token: string): string {
   return `Basic ${Buffer.from(`${email}:${token}`).toString("base64")}`;
@@ -108,4 +113,30 @@ export function jiraConfigFromEnv(): JiraConfig {
   }
 
   return { baseUrl: baseUrl!, email: email!, apiToken: apiToken!, boardId: boardId!, pointsField: pointsField! };
+}
+
+/**
+ * Fetches the full changelog for an issue, paginating until exhausted.
+ * Uses /rest/api/3 because the agile endpoint does not expose per-issue changelog.
+ */
+export async function fetchIssueChangelog(
+  cfg: JiraConfig,
+  issueKey: string,
+): Promise<JiraIssueChangelogResponse> {
+  let startAt = 0;
+  const all: JiraChangelogEntry[] = [];
+  let total = 0;
+
+  while (true) {
+    const url =
+      `${cfg.baseUrl}/rest/api/3/issue/${encodeURIComponent(issueKey)}/changelog` +
+      `?maxResults=100&startAt=${startAt}`;
+    const page = await jiraFetch<JiraIssueChangelogResponse>(url, cfg);
+    all.push(...page.values);
+    total = page.total;
+    startAt += page.values.length;
+    if (page.values.length === 0 || page.isLast || startAt >= total) break;
+  }
+
+  return { startAt: 0, maxResults: total, total, isLast: true, values: all };
 }

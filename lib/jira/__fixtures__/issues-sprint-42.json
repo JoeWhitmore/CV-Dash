@@ -14,6 +14,7 @@
           "displayName": "Joe Whitmore"
         },
         "updated": "2026-05-14T09:00:00.000+1000",
+        "created": "2026-05-01T09:00:00.000+1000",
         "customfield_10034": 3
       }
     },
@@ -25,6 +26,7 @@
         "issuetype": { "name": "Bug" },
         "assignee": null,
         "updated": "2026-05-14T10:30:00.000+1000",
+        "created": "2026-05-02T10:30:00.000+1000",
         "customfield_10034": null
       }
     }
