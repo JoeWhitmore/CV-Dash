@@ -1,0 +1,111 @@
+import type { JiraIssueSearchResponse, JiraSprintListResponse } from "@/lib/jira/types";
+
+export interface JiraConfig {
+  baseUrl: string;
+  email: string;
+  apiToken: string;
+  boardId: string;
+  pointsField: string;
+}
+
+export class JiraAuthError extends Error {}
+export class JiraRateLimitError extends Error {}
+export class JiraTransportError extends Error {}
+
+const FIELDS = ["summary", "status", "issuetype", "assignee", "updated"];
+
+function authHeader(email: string, token: string): string {
+  return `Basic ${Buffer.from(`${email}:${token}`).toString("base64")}`;
+}
+
+async function jiraFetch<T>(
+  url: string,
+  cfg: JiraConfig,
+  attempt = 1,
+): Promise<T> {
+  const res = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      Authorization: authHeader(cfg.email, cfg.apiToken),
+    },
+  });
+
+  if (res.status === 401) {
+    throw new JiraAuthError("Jira credentials rejected — check JIRA_EMAIL / JIRA_API_TOKEN.");
+  }
+  if (res.status === 429) {
+    if (attempt < 2) {
+      const retryAfter = Number(res.headers.get("Retry-After") ?? "1");
+      await new Promise((r) => setTimeout(r, retryAfter * 1000));
+      return jiraFetch<T>(url, cfg, attempt + 1);
+    }
+    throw new JiraRateLimitError("Jira rate limit hit — try again in a minute.");
+  }
+  if (res.status >= 500 && res.status < 600) {
+    if (attempt < 2) {
+      await new Promise((r) => setTimeout(r, 500));
+      return jiraFetch<T>(url, cfg, attempt + 1);
+    }
+    throw new JiraTransportError(`Jira returned ${res.status} after retry.`);
+  }
+  if (!res.ok) {
+    throw new JiraTransportError(`Jira returned ${res.status}: ${await res.text()}`);
+  }
+  return (await res.json()) as T;
+}
+
+export async function fetchActiveAndFutureSprints(cfg: JiraConfig): Promise<JiraSprintListResponse> {
+  const url = `${cfg.baseUrl}/rest/agile/1.0/board/${cfg.boardId}/sprint?state=active,future&maxResults=50`;
+  return jiraFetch<JiraSprintListResponse>(url, cfg);
+}
+
+const PAGE_SIZE = 100;
+
+/**
+ * Fetches every issue for a sprint, paginating via startAt/total until exhausted.
+ * The active sprint commonly has hundreds of issues — Jira caps page size at 100.
+ */
+export async function fetchIssuesForSprint(
+  cfg: JiraConfig,
+  sprintId: string,
+): Promise<JiraIssueSearchResponse> {
+  const fields = [...FIELDS, cfg.pointsField].join(",");
+  let startAt = 0;
+  const all: JiraIssueSearchResponse["issues"] = [];
+  let total = 0;
+
+  while (true) {
+    const url =
+      `${cfg.baseUrl}/rest/agile/1.0/sprint/${sprintId}/issue` +
+      `?fields=${encodeURIComponent(fields)}` +
+      `&maxResults=${PAGE_SIZE}` +
+      `&startAt=${startAt}`;
+    const page = await jiraFetch<JiraIssueSearchResponse>(url, cfg);
+    all.push(...page.issues);
+    total = page.total;
+    startAt += page.issues.length;
+    if (page.issues.length === 0 || startAt >= total) break;
+  }
+
+  return { startAt: 0, maxResults: total, total, issues: all };
+}
+
+export function jiraConfigFromEnv(): JiraConfig {
+  const baseUrl = process.env.JIRA_BASE_URL;
+  const email = process.env.JIRA_EMAIL;
+  const apiToken = process.env.JIRA_API_TOKEN;
+  const boardId = process.env.JIRA_BOARD_ID;
+  const pointsField = process.env.JIRA_STORY_POINTS_FIELD;
+
+  const missing: string[] = [];
+  if (!baseUrl) missing.push("JIRA_BASE_URL");
+  if (!email) missing.push("JIRA_EMAIL");
+  if (!apiToken) missing.push("JIRA_API_TOKEN");
+  if (!boardId) missing.push("JIRA_BOARD_ID");
+  if (!pointsField) missing.push("JIRA_STORY_POINTS_FIELD");
+  if (missing.length) {
+    throw new Error(`Jira not configured. Missing env var(s): ${missing.join(", ")}.`);
+  }
+
+  return { baseUrl: baseUrl!, email: email!, apiToken: apiToken!, boardId: boardId!, pointsField: pointsField! };
+}
