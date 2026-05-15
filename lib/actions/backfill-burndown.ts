@@ -85,16 +85,26 @@ export async function backfillBurndown(sprintId: string): Promise<BackfillResult
     for (const t of tickets) {
       const entry = changelogs.get(t.key);
       if (!entry) continue;
-      const rawAt = statusAtTime({
-        changelog: entry.changelog,
-        currentStatus: entry.currentStatus,
-        at: cutoff,
-      });
-      // Skip tickets with no known raw status at that time (very rare — pre-creation).
-      if (!rawAt) continue;
-      const mapped = mapJiraStatus(rawAt);
       total += t.points;
-      if (REMAINING.has(mapped.status)) remaining += t.points;
+
+      // Determine the mapped (domain) status at cutoff.
+      // 1. If the ticket has any status changes ever, use statusAtTime to find the raw Jira
+      //    name in force at cutoff, then run it through the status-map.
+      // 2. If the changelog has no status changes (ticket has never moved), the ticket has
+      //    held its current status since creation — use the DB-stored domain status directly.
+      let mappedStatus: string;
+      if (entry.currentStatus) {
+        const rawAt = statusAtTime({
+          changelog: entry.changelog,
+          currentStatus: entry.currentStatus,
+          at: cutoff,
+        });
+        mappedStatus = rawAt ? mapJiraStatus(rawAt).status : t.status;
+      } else {
+        mappedStatus = t.status;
+      }
+
+      if (REMAINING.has(mappedStatus)) remaining += t.points;
     }
     rows.push({ sprintId, forDate: day, remainingPoints: remaining, totalPoints: total });
   }
