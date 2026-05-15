@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Toaster } from "@/components/ui/sonner";
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
@@ -10,6 +11,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         </div>
       </header>
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6">{children}</main>
+      <Toaster richColors position="top-right" />
     </div>
   );
 }
