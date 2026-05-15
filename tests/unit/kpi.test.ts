@@ -21,20 +21,22 @@ const sprint: Sprint = {
 };
 
 describe("sprintKpis", () => {
-  it("sums points for in-scope tickets, ignores out-of-scope", () => {
+  it("sums all sprint points; pointsToPr counts every status from peer-review onward", () => {
     const tickets = [
       ticket("CV-1", "to-do", 3),
       ticket("CV-2", "in-progress", 5),
       ticket("CV-3", "peer-review", 2),
-      ticket("CV-4", "done", 100), // ignored
-      ticket("CV-5", "testing", 100), // ignored
+      ticket("CV-4", "done", 100),
+      ticket("CV-5", "testing", 100),
     ];
     const today = "2026-05-14";
     const kpis = sprintKpis(sprint, tickets, today);
 
-    expect(kpis.pointsCommitted).toBe(10);
-    expect(kpis.pointsToPr).toBe(2);
-    expect(kpis.percentComplete).toBe(20);
+    // No freeze on this sprint — pointsCommitted is the full sprint scope (210),
+    // pointsToPr counts every ticket whose status is peer-review/testing/done/closed (202).
+    expect(kpis.pointsCommitted).toBe(210);
+    expect(kpis.pointsToPr).toBe(202);
+    expect(kpis.percentComplete).toBe(96.2);
     // 2026-05-14 (Thu) -> 2026-05-18 (Mon) inclusive = Thu, Fri, Mon = 3 working days
     expect(kpis.daysRemaining).toBe(3);
   });
@@ -80,15 +82,20 @@ describe("sprintKpis", () => {
     expect(kpis.pointsCommitted).toBe(18);
   });
 
-  it("when committedTicketKeys is null, falls back to in-scope sum", () => {
+  it("when committedTicketKeys is null, falls back to summing every sprint ticket", () => {
     const sprintWithoutFreeze: Sprint = {
       ...sprint,
-      ticketKeys: ["CV-1", "CV-2"],
+      ticketKeys: ["CV-1", "CV-2", "CV-3"],
       committedTicketKeys: null,
     };
-    const tickets = [ticket("CV-1", "to-do", 3), ticket("CV-2", "in-progress", 5)];
+    // Includes a 'done' ticket that the old in-scope filter would have dropped.
+    const tickets = [
+      ticket("CV-1", "to-do", 3),
+      ticket("CV-2", "in-progress", 5),
+      ticket("CV-3", "done", 7),
+    ];
     const kpis = sprintKpis(sprintWithoutFreeze, tickets, "2026-05-14");
-    expect(kpis.pointsCommitted).toBe(8);
+    expect(kpis.pointsCommitted).toBe(15);
   });
 
   it("when committedTicketKeys is set, committed tickets that have moved to done still count (commitment is constant)", () => {
@@ -123,17 +130,19 @@ describe("sprintKpis", () => {
     expect(kpis.percentComplete).toBe(37.5);
   });
 
-  it("when committedTicketKeys is null, pointsToPr falls back to all in-scope tickets at peer-review", () => {
+  it("when committedTicketKeys is null, pointsToPr counts every sprint ticket past peer-review", () => {
     const sprintWithoutFreeze: Sprint = {
       ...sprint,
-      ticketKeys: ["CV-1", "CV-NEW"],
+      ticketKeys: ["CV-1", "CV-2", "CV-3", "CV-4"],
       committedTicketKeys: null,
     };
     const tickets = [
       ticket("CV-1", "peer-review", 3),
-      ticket("CV-NEW", "peer-review", 5),
+      ticket("CV-2", "testing", 5),
+      ticket("CV-3", "done", 7),
+      ticket("CV-4", "to-do", 999), // not yet at PR
     ];
     const kpis = sprintKpis(sprintWithoutFreeze, tickets, "2026-05-14");
-    expect(kpis.pointsToPr).toBe(8);
+    expect(kpis.pointsToPr).toBe(15);
   });
 });

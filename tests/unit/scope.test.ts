@@ -26,10 +26,19 @@ describe("isInScope", () => {
 });
 
 describe("isComplete", () => {
-  it("returns true only for peer-review", () => {
-    expect(isComplete(t("peer-review"))).toBe(true);
-    expect(isComplete(t("in-review"))).toBe(false);
-    expect(isComplete(t("done"))).toBe(false);
+  it.each([
+    // Once a ticket reaches peer-review it stays counted toward Points-to-PR even after
+    // moving further along the board (testing/done/closed).
+    ["peer-review", true],
+    ["testing", true],
+    ["done", true],
+    ["closed", true],
+    // Anything before peer-review is not yet complete.
+    ["to-do", false],
+    ["in-progress", false],
+    ["in-review", false],
+  ] as const)("status=%s -> %s", (status, expected) => {
+    expect(isComplete(t(status))).toBe(expected);
   });
 });
 

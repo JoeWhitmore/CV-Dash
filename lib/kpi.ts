@@ -1,4 +1,4 @@
-import { filterInScope, isComplete } from "@/lib/scope";
+import { isComplete } from "@/lib/scope";
 import type { Sprint, Ticket } from "@/lib/types";
 import { workingDaysBetween } from "@/lib/working-days";
 
@@ -9,27 +9,29 @@ export interface SprintKpis {
   daysRemaining: number;
 }
 
+/**
+ * Both pointsCommitted and pointsToPr operate on the SAME scope so the ratio is meaningful:
+ *
+ * - **Freeze path** (`committedTicketKeys` set on sprint): the scope is the frozen set
+ *   captured at the Brisbane Monday 8AM cutoff. Spillover added later doesn't count.
+ * - **Fallback path** (no freeze yet): the scope is every ticket currently in the sprint.
+ *   This is used for sprints that haven't reached their cutoff or haven't been synced since.
+ *
+ * Within that scope, `pointsCommitted` is the sum of all ticket points (regardless of current
+ * status) and `pointsToPr` is the sum of points for tickets that have reached peer-review
+ * (status in {peer-review, testing, done, closed}).
+ */
 export function sprintKpis(sprint: Sprint, tickets: Ticket[], todayISO: string): SprintKpis {
   const inSprint = tickets.filter((t) => sprint.ticketKeys.includes(t.key));
-  const inScope = filterInScope(inSprint);
 
   const committedSet = sprint.committedTicketKeys
     ? new Set(sprint.committedTicketKeys)
     : null;
-  // Freeze path (committedTicketKeys set): sum all committed tickets regardless of status so
-  // pointsCommitted stays constant as tickets move through the board. This is intentional —
-  // the commitment is captured once at Monday 8AM Brisbane and must not drift.
-  // Fallback path (null): sum in-scope tickets only (pre-existing behavior, used before cutoff).
-  const pointsCommitted = committedSet
-    ? inSprint.filter((t) => committedSet.has(t.key)).reduce((s, t) => s + t.points, 0)
-    : inScope.reduce((s, t) => s + t.points, 0);
 
-  // pointsToPr also respects the freeze: only committed tickets that reached peer-review count.
-  // This keeps the % complete denominator and numerator on the same scope.
-  const completedTickets = inSprint.filter(isComplete);
-  const pointsToPr = committedSet
-    ? completedTickets.filter((t) => committedSet.has(t.key)).reduce((s, t) => s + t.points, 0)
-    : completedTickets.reduce((s, t) => s + t.points, 0);
+  const scope = committedSet ? inSprint.filter((t) => committedSet.has(t.key)) : inSprint;
+
+  const pointsCommitted = scope.reduce((s, t) => s + t.points, 0);
+  const pointsToPr = scope.filter(isComplete).reduce((s, t) => s + t.points, 0);
   const percentComplete =
     pointsCommitted === 0 ? 0 : Math.round((pointsToPr / pointsCommitted) * 1000) / 10;
 
