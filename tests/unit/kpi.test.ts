@@ -17,6 +17,7 @@ const sprint: Sprint = {
   startDate: "2026-05-05",
   endDate: "2026-05-18",
   ticketKeys: ["CV-1", "CV-2", "CV-3", "CV-4", "CV-5"],
+  committedTicketKeys: null,
 };
 
 describe("sprintKpis", () => {
@@ -48,5 +49,45 @@ describe("sprintKpis", () => {
     const tickets = [ticket("CV-1", "to-do", 3)];
     const kpis = sprintKpis(sprint, tickets, "2026-06-01");
     expect(kpis.daysRemaining).toBe(0);
+  });
+
+  it("when committedTicketKeys is set, pointsCommitted ignores tickets outside the committed list", () => {
+    const sprintWithFreeze: Sprint = {
+      ...sprint,
+      ticketKeys: ["CV-1", "CV-2", "CV-SPILLOVER"],
+      committedTicketKeys: ["CV-1", "CV-2"],
+    };
+    const tickets = [
+      ticket("CV-1", "to-do", 3),
+      ticket("CV-2", "in-progress", 5),
+      ticket("CV-SPILLOVER", "in-progress", 8),
+    ];
+    const kpis = sprintKpis(sprintWithFreeze, tickets, "2026-05-14");
+    expect(kpis.pointsCommitted).toBe(8);
+  });
+
+  it("when committedTicketKeys is set, re-estimates of committed tickets still count", () => {
+    const sprintWithFreeze: Sprint = {
+      ...sprint,
+      ticketKeys: ["CV-1", "CV-2"],
+      committedTicketKeys: ["CV-1", "CV-2"],
+    };
+    const tickets = [
+      ticket("CV-1", "to-do", 5),
+      ticket("CV-2", "in-progress", 13),
+    ];
+    const kpis = sprintKpis(sprintWithFreeze, tickets, "2026-05-14");
+    expect(kpis.pointsCommitted).toBe(18);
+  });
+
+  it("when committedTicketKeys is null, falls back to in-scope sum", () => {
+    const sprintWithoutFreeze: Sprint = {
+      ...sprint,
+      ticketKeys: ["CV-1", "CV-2"],
+      committedTicketKeys: null,
+    };
+    const tickets = [ticket("CV-1", "to-do", 3), ticket("CV-2", "in-progress", 5)];
+    const kpis = sprintKpis(sprintWithoutFreeze, tickets, "2026-05-14");
+    expect(kpis.pointsCommitted).toBe(8);
   });
 });
