@@ -31,6 +31,7 @@ export interface Sprint {
   startDate: string;
   endDate: string;
   ticketKeys: string[];
+  committedTicketKeys: string[] | null;
 }
 
 export interface BurndownPoint {

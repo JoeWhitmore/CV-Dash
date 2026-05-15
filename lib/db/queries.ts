@@ -20,6 +20,7 @@ export async function getSprints(): Promise<Sprint[]> {
     startDate: r.startDate ?? "",
     endDate: r.endDate ?? "",
     ticketKeys: keysBySprint.get(r.id) ?? [],
+    committedTicketKeys: r.committedTicketKeys ?? null,
   }));
 }
 
