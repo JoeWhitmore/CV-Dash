@@ -11,6 +11,8 @@ export interface SprintUpsert {
   endDate: string | null;
   baselinePoints: number;
   baselineCapturedAt: Date;
+  committedTicketKeys: string[] | null;
+  committedCapturedAt: Date | null;
   jiraBoardId: string;
 }
 
@@ -38,6 +40,8 @@ export interface SyncWriteInput {
   tickets: ParsedTicket[];
   assignees: DerivedTeamMember[];
   existingBaselines: Map<string, { baselinePoints: number; baselineCapturedAt: Date }>;
+  existingCommitments: Map<string, { ticketKeys: string[]; capturedAt: Date }>;
+  commitmentFreezes: Map<string, string[]>;
   now: Date;
 }
 
@@ -51,7 +55,7 @@ export interface SyncWriteOutput {
 }
 
 export function buildSyncWrite(input: SyncWriteInput): SyncWriteOutput {
-  const { sprints, tickets, assignees, existingBaselines, now } = input;
+  const { sprints, tickets, assignees, existingBaselines, existingCommitments, commitmentFreezes, now } = input;
 
   const ticketsBySprint = new Map<string, ParsedTicket[]>();
   for (const t of tickets) {
@@ -61,10 +65,21 @@ export function buildSyncWrite(input: SyncWriteInput): SyncWriteOutput {
   }
 
   const sprintUpserts: SprintUpsert[] = sprints.map((s) => {
-    const existing = existingBaselines.get(s.id);
+    const existingBaseline = existingBaselines.get(s.id);
+    const existingCommitment = existingCommitments.get(s.id);
+    const freezeKeys = commitmentFreezes.get(s.id);
+
     const sprintTickets = ticketsBySprint.get(s.id) ?? [];
-    const baselinePoints = existing?.baselinePoints ?? sprintTickets.reduce((sum, t) => sum + t.points, 0);
-    const baselineCapturedAt = existing?.baselineCapturedAt ?? now;
+    const baselinePoints = existingBaseline?.baselinePoints ?? sprintTickets.reduce((sum, t) => sum + t.points, 0);
+    const baselineCapturedAt = existingBaseline?.baselineCapturedAt ?? now;
+
+    let committedTicketKeys: string[] | null = existingCommitment?.ticketKeys ?? null;
+    let committedCapturedAt: Date | null = existingCommitment?.capturedAt ?? null;
+    if (!existingCommitment && freezeKeys) {
+      committedTicketKeys = freezeKeys;
+      committedCapturedAt = now;
+    }
+
     return {
       id: s.id,
       name: s.name,
@@ -73,6 +88,8 @@ export function buildSyncWrite(input: SyncWriteInput): SyncWriteOutput {
       endDate: s.endDate,
       baselinePoints,
       baselineCapturedAt,
+      committedTicketKeys,
+      committedCapturedAt,
       jiraBoardId: s.jiraBoardId,
     };
   });

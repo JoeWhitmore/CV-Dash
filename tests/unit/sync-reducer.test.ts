@@ -35,6 +35,8 @@ describe("buildSyncWrite", () => {
       tickets: [ticket("CV-1", "to-do", 3, "42"), ticket("CV-2", "in-progress", 5, "42")],
       assignees: [],
       existingBaselines: new Map(),
+      existingCommitments: new Map(),
+      commitmentFreezes: new Map(),
       now: new Date("2026-05-15T12:00:00Z"),
     });
     expect(result.sprintUpserts[0].baselinePoints).toBe(8);
@@ -47,6 +49,8 @@ describe("buildSyncWrite", () => {
       tickets: [ticket("CV-1", "to-do", 3, "42")],
       assignees: [],
       existingBaselines: new Map([["42", { baselinePoints: 8, baselineCapturedAt: new Date("2026-05-10T00:00:00Z") }]]),
+      existingCommitments: new Map(),
+      commitmentFreezes: new Map(),
       now: new Date("2026-05-15T12:00:00Z"),
     });
     expect(result.sprintUpserts[0].baselinePoints).toBe(8);
@@ -67,6 +71,8 @@ describe("buildSyncWrite", () => {
       ],
       assignees: [],
       existingBaselines: new Map(),
+      existingCommitments: new Map(),
+      commitmentFreezes: new Map(),
       now: new Date("2026-05-15T12:00:00Z"),
     });
     const snap = result.burndownSnapshots.find((s) => s.sprintId === "42")!;
@@ -80,6 +86,8 @@ describe("buildSyncWrite", () => {
       tickets: [ticket("CV-1", "to-do", 3, "42"), ticket("CV-2", "to-do", 2, "43")],
       assignees: [],
       existingBaselines: new Map(),
+      existingCommitments: new Map(),
+      commitmentFreezes: new Map(),
       now: new Date("2026-05-15T12:00:00Z"),
     });
     expect(result.burndownSnapshots).toHaveLength(2);
@@ -91,9 +99,55 @@ describe("buildSyncWrite", () => {
       tickets: [ticket("CV-1", "to-do", 3, "42"), ticket("CV-2", "to-do", 2, "42")],
       assignees: [],
       existingBaselines: new Map(),
+      existingCommitments: new Map(),
+      commitmentFreezes: new Map(),
       now: new Date("2026-05-15T12:00:00Z"),
     });
     expect(result.activeTicketKeys.sort()).toEqual(["CV-1", "CV-2"]);
     expect(result.activeSprintIds).toEqual(["42"]);
+  });
+
+  it("freezes committedTicketKeys when caller passes commitmentFreezes and no existing commitment", () => {
+    const result = buildSyncWrite({
+      sprints: [sprint("42", "Sprint 42")],
+      tickets: [ticket("CV-1", "to-do", 3, "42"), ticket("CV-2", "in-progress", 5, "42")],
+      assignees: [],
+      existingBaselines: new Map(),
+      existingCommitments: new Map(),
+      commitmentFreezes: new Map([["42", ["CV-1", "CV-2"]]]),
+      now: new Date("2026-05-15T12:00:00Z"),
+    });
+    expect(result.sprintUpserts[0].committedTicketKeys).toEqual(["CV-1", "CV-2"]);
+    expect(result.sprintUpserts[0].committedCapturedAt).toEqual(new Date("2026-05-15T12:00:00Z"));
+  });
+
+  it("preserves existing committedTicketKeys (does not re-freeze)", () => {
+    const result = buildSyncWrite({
+      sprints: [sprint("42", "Sprint 42")],
+      tickets: [ticket("CV-1", "to-do", 3, "42"), ticket("CV-2", "in-progress", 5, "42")],
+      assignees: [],
+      existingBaselines: new Map(),
+      existingCommitments: new Map([
+        ["42", { ticketKeys: ["CV-1"], capturedAt: new Date("2026-05-10T00:00:00Z") }],
+      ]),
+      commitmentFreezes: new Map([["42", ["CV-1", "CV-2"]]]),
+      now: new Date("2026-05-15T12:00:00Z"),
+    });
+    expect(result.sprintUpserts[0].committedTicketKeys).toEqual(["CV-1"]);
+    expect(result.sprintUpserts[0].committedCapturedAt).toEqual(new Date("2026-05-10T00:00:00Z"));
+  });
+
+  it("leaves committedTicketKeys null when no freeze is requested and no existing commitment", () => {
+    const result = buildSyncWrite({
+      sprints: [sprint("42", "Sprint 42")],
+      tickets: [ticket("CV-1", "to-do", 3, "42")],
+      assignees: [],
+      existingBaselines: new Map(),
+      existingCommitments: new Map(),
+      commitmentFreezes: new Map(),
+      now: new Date("2026-05-15T12:00:00Z"),
+    });
+    expect(result.sprintUpserts[0].committedTicketKeys).toBeNull();
+    expect(result.sprintUpserts[0].committedCapturedAt).toBeNull();
   });
 });
