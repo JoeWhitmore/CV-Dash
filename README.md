@@ -1,5 +1,25 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Setup
+
+1. Link to Vercel and install the Neon integration:
+   ```bash
+   vercel link
+   # then via the Vercel dashboard: Storage → Browse Marketplace → Neon → Install
+   ```
+2. Create a Jira API token at https://id.atlassian.com/manage-profile/security/api-tokens
+3. Pull env vars locally:
+   ```bash
+   vercel env pull .env.local
+   ```
+4. Add Jira vars to `.env.local` (see `.env.example` for the full list).
+5. Apply DB migrations:
+   ```bash
+   pnpm drizzle-kit migrate
+   ```
+6. Start the app: `pnpm dev`
+7. Open `http://localhost:3000/dashboard` and click "Sync from Jira" to load real data.
+
 ## Getting Started
 
 First, run the development server:
