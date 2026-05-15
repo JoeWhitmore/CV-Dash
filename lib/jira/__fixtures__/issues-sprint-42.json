@@ -1,0 +1,32 @@
+{
+  "startAt": 0,
+  "maxResults": 50,
+  "total": 2,
+  "issues": [
+    {
+      "key": "CV-1300",
+      "fields": {
+        "summary": "Add sprint selector to dashboard",
+        "status": { "name": "To Do" },
+        "issuetype": { "name": "Story" },
+        "assignee": {
+          "accountId": "5b10ac8d82e05b22cc7d4ef5",
+          "displayName": "Joe Whitmore"
+        },
+        "updated": "2026-05-14T09:00:00.000+1000",
+        "customfield_10034": 3
+      }
+    },
+    {
+      "key": "CV-1303",
+      "fields": {
+        "summary": "Fix dark-mode contrast on KPI tile",
+        "status": { "name": "Peer review" },
+        "issuetype": { "name": "Bug" },
+        "assignee": null,
+        "updated": "2026-05-14T10:30:00.000+1000",
+        "customfield_10034": null
+      }
+    }
+  ]
+}
