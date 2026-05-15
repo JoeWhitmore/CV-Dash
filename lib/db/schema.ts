@@ -55,13 +55,17 @@ export const burndownSnapshots = pgTable(
     sprintId: text("sprint_id")
       .notNull()
       .references(() => sprints.id),
+    forDate: date("for_date").notNull(),
     capturedAt: timestamp("captured_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
     remainingPoints: integer("remaining_points").notNull(),
     totalPoints: integer("total_points").notNull(),
   },
-  (t) => [index("burndown_snapshots_sprint_captured_idx").on(t.sprintId, t.capturedAt)],
+  (t) => [
+    index("burndown_snapshots_sprint_captured_idx").on(t.sprintId, t.capturedAt),
+    uniqueIndex("burndown_snapshots_sprint_for_date_idx").on(t.sprintId, t.forDate),
+  ],
 );
 
 export const syncRuns = pgTable("sync_runs", {

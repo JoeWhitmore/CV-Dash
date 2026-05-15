@@ -15,6 +15,13 @@
       "when": 1778826805792,
       "tag": "0001_thick_sage",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778827899755,
+      "tag": "0002_burndown_per_day",
+      "breakpoints": true
     }
   ]
 }
