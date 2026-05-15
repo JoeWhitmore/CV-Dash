@@ -54,7 +54,7 @@ export function DashboardClient({
       if (next.assigneeIds.length === 0) sp.delete("assignees");
       else sp.set("assignees", next.assigneeIds.join(","));
     }
-    router.replace(`/dashboard?${sp.toString()}`);
+    router.replace(`/dashboard?${sp.toString()}`, { scroll: false });
   }
 
   const lastSyncLabel = lastSyncedAt
