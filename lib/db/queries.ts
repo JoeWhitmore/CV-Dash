@@ -67,12 +67,12 @@ export async function getBurndown(sprintId: string): Promise<BurndownPoint[]> {
   if (!sprint) return [];
   const snapshots = await db
     .select({
-      capturedAt: schema.burndownSnapshots.capturedAt,
+      forDate: schema.burndownSnapshots.forDate,
       remainingPoints: schema.burndownSnapshots.remainingPoints,
     })
     .from(schema.burndownSnapshots)
     .where(eq(schema.burndownSnapshots.sprintId, sprintId))
-    .orderBy(schema.burndownSnapshots.capturedAt);
+    .orderBy(schema.burndownSnapshots.forDate);
   return projectBurndown({
     sprint: {
       startDate: sprint.startDate,

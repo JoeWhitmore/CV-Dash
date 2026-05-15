@@ -7,13 +7,18 @@ export interface ProjectBurndownInput {
     endDate: string | null;
     baselinePoints: number | null;
   };
-  snapshots: Array<{ capturedAt: Date; remainingPoints: number }>;
+  /**
+   * One snapshot per (sprint, working day). `forDate` is the ISO date the snapshot
+   * represents — i.e. the working day for which `remainingPoints` is the end-of-day total.
+   */
+  snapshots: Array<{ forDate: string; remainingPoints: number }>;
 }
 
 /**
- * Project DB burndown snapshots into chart-ready points across the sprint's working days
- * (Mon-Fri only). The ideal line drops linearly from baseline to 0 across the working-day
- * count. Snapshots captured on weekends roll back to the previous Friday.
+ * Project per-working-day burndown snapshots into chart-ready points across the sprint's
+ * working days (Mon-Fri only). The ideal line drops linearly from baseline to 0 across the
+ * working-day count. Real `remaining` values come from snapshots; weekday slots with no
+ * snapshot (future days) get `remaining: null` so the chart doesn't connect through them.
  */
 export function projectBurndown(input: ProjectBurndownInput): BurndownPoint[] {
   const { sprint, snapshots } = input;
@@ -30,17 +35,14 @@ export function projectBurndown(input: ProjectBurndownInput): BurndownPoint[] {
 
   const byDate = new Map<string, BurndownPoint>();
   workingDays.forEach((date, i) => {
-    byDate.set(date, {
-      date,
-      remaining: i === 0 ? baseline : null,
-      ideal: idealAtIndex(i),
-    });
+    byDate.set(date, { date, remaining: null, ideal: idealAtIndex(i) });
   });
 
+  // Overlay snapshots onto matching working days. A snapshot whose forDate is a Saturday
+  // or Sunday (e.g. manual refresh on a weekend) rolls back to the preceding Friday.
   const workingDaySet = new Set(workingDays);
   for (const s of snapshots) {
-    const captured = s.capturedAt.toISOString().slice(0, 10);
-    const target = rollBackToWorkingDay(captured);
+    const target = rollBackToWorkingDay(s.forDate);
     if (!workingDaySet.has(target)) continue;
     const existing = byDate.get(target);
     if (!existing) continue;
