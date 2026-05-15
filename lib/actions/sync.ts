@@ -181,6 +181,7 @@ export async function syncFromJira(): Promise<SyncResult> {
           set: {
             remainingPoints: sql`excluded.remaining_points`,
             totalPoints: sql`excluded.total_points`,
+            committedRemainingPoints: sql`excluded.committed_remaining_points`,
             capturedAt: sql`excluded.captured_at`,
           },
         });
