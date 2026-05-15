@@ -50,11 +50,12 @@ export function BurndownChart({ data }: Props) {
               isAnimationActive={false}
             />
             <Line
-              type="stepAfter"
+              type="monotone"
               dataKey="remaining"
               stroke="var(--color-remaining)"
               strokeWidth={2}
-              dot={false}
+              dot={{ r: 3 }}
+              connectNulls
               isAnimationActive={false}
             />
             <ChartLegend content={<ChartLegendContent />} />
