@@ -118,15 +118,30 @@ describe("projectBurndown", () => {
         committedBaselinePoints: 200,
       }),
       snapshots: [
-        snap("2026-05-11", 600, 195), // unrestricted 600, committed-only 195
-        snap("2026-05-13", 400, 120),
+        snap("2026-05-13", 400, 120), // unrestricted 400, committed-only 120
+        snap("2026-05-14", 350, 80),
       ],
     });
-    expect(result.find((p) => p.date === "2026-05-11")?.remaining).toBe(195);
     expect(result.find((p) => p.date === "2026-05-13")?.remaining).toBe(120);
+    expect(result.find((p) => p.date === "2026-05-14")?.remaining).toBe(80);
   });
 
-  it("when committed mode is active, snapshots that predate the freeze (committedRemainingPoints null) are skipped (no scope mixing)", () => {
+  it("when committed mode is active, day 0 is anchored to committedBaselinePoints regardless of snapshots", () => {
+    const result = projectBurndown({
+      sprint: sprint({
+        startDate: "2026-05-11",
+        endDate: "2026-05-15",
+        baselinePoints: 625,
+        committedBaselinePoints: 200,
+      }),
+      // Even a non-null snapshot for day 0 doesn't override the anchor — by burndown convention
+      // all committed work is "remaining" at sprint start.
+      snapshots: [snap("2026-05-11", 600, 150)],
+    });
+    expect(result.find((p) => p.date === "2026-05-11")?.remaining).toBe(200);
+  });
+
+  it("when committed mode is active, snapshots that predate the freeze (committedRemainingPoints null) are skipped on non-day-0 slots", () => {
     const result = projectBurndown({
       sprint: sprint({
         startDate: "2026-05-11",
@@ -135,11 +150,11 @@ describe("projectBurndown", () => {
         committedBaselinePoints: 200,
       }),
       snapshots: [
-        snap("2026-05-11", 600, null), // pre-freeze snapshot — must not be plotted
-        snap("2026-05-13", 400, 120),
+        snap("2026-05-13", 400, null), // pre-freeze snapshot — must not be plotted
+        snap("2026-05-14", 350, 80),
       ],
     });
-    expect(result.find((p) => p.date === "2026-05-11")?.remaining).toBeNull();
-    expect(result.find((p) => p.date === "2026-05-13")?.remaining).toBe(120);
+    expect(result.find((p) => p.date === "2026-05-13")?.remaining).toBeNull();
+    expect(result.find((p) => p.date === "2026-05-14")?.remaining).toBe(80);
   });
 });

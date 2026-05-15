@@ -52,15 +52,23 @@ export function projectBurndown(input: ProjectBurndownInput): BurndownPoint[] {
 
   const byDate = new Map<string, BurndownPoint>();
   workingDays.forEach((date, i) => {
-    byDate.set(date, { date, remaining: null, ideal: idealAtIndex(i) });
+    // In committed mode, anchor day 0's actual to committedBaselinePoints — by burndown
+    // convention all committed work is "remaining" at sprint start, regardless of whether
+    // some tickets had moved past peer-review before cutoff. Subsequent days are filled
+    // from snapshots (= state at start of that working day = end of previous working day).
+    const initialRemaining = useCommitted && i === 0 ? baseline : null;
+    byDate.set(date, { date, remaining: initialRemaining, ideal: idealAtIndex(i) });
   });
 
   // Overlay snapshots onto matching working days. A snapshot whose forDate is a Saturday
   // or Sunday (e.g. manual refresh on a weekend) rolls back to the preceding Friday.
+  // In committed mode, day 0 is invariant — the anchor wins over any snapshot for that slot.
   const workingDaySet = new Set(workingDays);
+  const day0 = workingDays[0];
   for (const s of snapshots) {
     const target = rollBackToWorkingDay(s.forDate);
     if (!workingDaySet.has(target)) continue;
+    if (useCommitted && target === day0) continue;
     const existing = byDate.get(target);
     if (!existing) continue;
     // Prefer the committed value when the sprint is in committed mode; if a particular

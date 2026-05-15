@@ -11,14 +11,12 @@ import {
 } from "@/lib/jira/client";
 import { parseIssueIntoTicket, parseSprintList } from "@/lib/jira/parsers";
 import { deriveTeam } from "@/lib/sync/team-derivation";
-import { buildSyncWrite } from "@/lib/sync/reducer";
+import { REMAINING_STATUSES, buildSyncWrite } from "@/lib/sync/reducer";
 import { committedCutoff } from "@/lib/sprint/cutoff";
 import { statusAtTime, wasInSprintAt } from "@/lib/jira/sprint-history";
 import { mapJiraStatus } from "@/lib/jira/status-map";
 import { enumerateWorkingDays } from "@/lib/working-days";
 import type { JiraChangelogEntry, JiraIssue } from "@/lib/jira/types";
-
-const REMAINING_STATUSES_FOR_BURNDOWN = new Set(["to-do", "in-progress", "in-review"]);
 
 /**
  * End-of-working-day Brisbane (UTC+10) as a UTC Date. e.g. "2026-05-11" → 2026-05-11 24:00 +10:00
@@ -135,14 +133,18 @@ export async function syncFromJira(): Promise<SyncResult> {
       }
       commitmentFreezes.set(s.id, committedKeys);
 
-      // Replay each working day: for each committed ticket, ask the changelog what its status was
-      // at end-of-day Brisbane. Sum points for tickets that were in remaining-statuses at that
-      // moment. Cap at today (don't pre-populate future days).
+      // Replay each working day's morning state: snapshot for day D = end of day D-1 Brisbane.
+      // Day 0 (Monday) is skipped — projectBurndown anchors it to committedBaselinePoints by
+      // burndown convention ("all committed work is remaining at sprint start"). Today's snapshot
+      // is also skipped because the reducer's regular sync writes it with the current live state.
+      // Result: Mon plots baseline, Tue plots end-of-Mon, ..., today plots current state.
       if (s.startDate && s.endDate) {
         const days = enumerateWorkingDays(s.startDate, s.endDate);
         const todayKey = now.toISOString().slice(0, 10);
-        for (const day of days) {
-          if (day > todayKey) break;
+        for (let dIdx = 1; dIdx < days.length; dIdx++) {
+          const day = days[dIdx];
+          if (day >= todayKey) break;
+          const prevDay = days[dIdx - 1];
           let value = 0;
           for (const key of committedKeys) {
             const issue = ticketByKey.get(key);
@@ -152,9 +154,9 @@ export async function syncFromJira(): Promise<SyncResult> {
             const status = statusAtTime({
               currentStatus: mapJiraStatus(issue.fields.status.name).status,
               changelog: cl,
-              at: endOfDayBrisbane(day),
+              at: endOfDayBrisbane(prevDay),
             });
-            if (REMAINING_STATUSES_FOR_BURNDOWN.has(status)) value += points;
+            if (REMAINING_STATUSES.has(status)) value += points;
           }
           historicalCommittedRemaining.push({ sprintId: s.id, forDate: day, value });
         }

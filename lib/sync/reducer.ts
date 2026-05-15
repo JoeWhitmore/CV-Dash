@@ -1,7 +1,7 @@
 import type { ParsedSprint, ParsedTicket } from "@/lib/jira/parsers";
 import type { DerivedTeamMember } from "@/lib/sync/team-derivation";
 
-const REMAINING_STATUSES = new Set(["to-do", "in-progress", "in-review"]);
+export const REMAINING_STATUSES = new Set(["to-do", "blocked", "in-progress"]);
 
 export interface SprintUpsert {
   id: string;
