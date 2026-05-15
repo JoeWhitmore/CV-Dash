@@ -8,6 +8,13 @@
       "when": 1778822259327,
       "tag": "0000_init_jira_sync",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778826805792,
+      "tag": "0001_thick_sage",
+      "breakpoints": true
     }
   ]
 }

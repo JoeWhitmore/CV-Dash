@@ -17,6 +17,8 @@ export const sprints = pgTable("sprints", {
   endDate: date("end_date"),
   baselinePoints: integer("baseline_points"),
   baselineCapturedAt: timestamp("baseline_captured_at", { withTimezone: true }),
+  committedTicketKeys: text("committed_ticket_keys").array(),
+  committedCapturedAt: timestamp("committed_captured_at", { withTimezone: true }),
   jiraBoardId: text("jira_board_id").notNull(),
 });
 
