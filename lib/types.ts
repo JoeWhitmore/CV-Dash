@@ -1,7 +1,7 @@
 export type Status =
   | "to-do"
+  | "blocked"
   | "in-progress"
-  | "in-review"
   | "peer-review"
   | "testing"
   | "done"
@@ -36,7 +36,6 @@ export interface Sprint {
 
 export interface BurndownPoint {
   date: string;
-  /** null on synthetic anchor points (sprint end, future weekdays with no snapshot yet) */
   remaining: number | null;
   ideal: number;
 }

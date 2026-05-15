@@ -57,13 +57,13 @@ describe("buildSyncWrite", () => {
     expect(result.sprintUpserts[0].baselineCapturedAt).toEqual(new Date("2026-05-10T00:00:00Z"));
   });
 
-  it("computes remaining = sum of points NOT in {peer-review,testing,done,closed}", () => {
+  it("computes remaining = sum of points in {to-do, blocked, in-progress}", () => {
     const result = buildSyncWrite({
       sprints: [sprint("42", "Sprint 42")],
       tickets: [
         ticket("CV-1", "to-do", 3, "42"),
-        ticket("CV-2", "in-progress", 5, "42"),
-        ticket("CV-3", "in-review", 2, "42"),
+        ticket("CV-2", "blocked", 2, "42"),
+        ticket("CV-3", "in-progress", 5, "42"),
         ticket("CV-4", "peer-review", 8, "42"),
         ticket("CV-5", "testing", 1, "42"),
         ticket("CV-6", "done", 4, "42"),
@@ -76,7 +76,7 @@ describe("buildSyncWrite", () => {
       now: new Date("2026-05-15T12:00:00Z"),
     });
     const snap = result.burndownSnapshots.find((s) => s.sprintId === "42")!;
-    expect(snap.remainingPoints).toBe(10); // 3 + 5 + 2
+    expect(snap.remainingPoints).toBe(10); // 3 + 2 + 5
     expect(snap.totalPoints).toBe(30);     // sum of all
   });
 

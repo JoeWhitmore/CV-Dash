@@ -11,7 +11,7 @@ import { statusAtTime } from "@/lib/jira/status-history";
 import { endOfWorkingDay } from "@/lib/sprint/working-day-end";
 import { enumerateWorkingDays } from "@/lib/working-days";
 
-const REMAINING = new Set(["to-do", "in-progress", "in-review"]);
+const REMAINING = new Set(["to-do", "blocked", "in-progress"]);
 
 export interface BackfillResult {
   ok: boolean;

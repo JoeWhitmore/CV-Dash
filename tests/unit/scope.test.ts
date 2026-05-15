@@ -14,8 +14,8 @@ const t = (status: Ticket["status"]): Ticket => ({
 describe("isInScope", () => {
   it.each([
     ["to-do", true],
+    ["blocked", true],
     ["in-progress", true],
-    ["in-review", true],
     ["peer-review", true],
     ["testing", false],
     ["done", false],
@@ -35,8 +35,8 @@ describe("isComplete", () => {
     ["closed", true],
     // Anything before peer-review is not yet complete.
     ["to-do", false],
+    ["blocked", false],
     ["in-progress", false],
-    ["in-review", false],
   ] as const)("status=%s -> %s", (status, expected) => {
     expect(isComplete(t(status))).toBe(expected);
   });

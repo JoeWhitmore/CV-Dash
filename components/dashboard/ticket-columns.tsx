@@ -11,8 +11,8 @@ interface Props {
 export function TicketColumns({ tickets, team }: Props) {
   const byStatus: Record<InScopeStatus, Ticket[]> = {
     "to-do": [],
+    blocked: [],
     "in-progress": [],
-    "in-review": [],
     "peer-review": [],
   };
   for (const t of tickets) {
@@ -31,7 +31,7 @@ export function TicketColumns({ tickets, team }: Props) {
           aria-label={STATUS_LABEL[status]}
           className="flex min-w-[260px] flex-col gap-3 snap-start md:min-w-0"
         >
-          <header className="sticky top-0 flex items-center justify-between gap-2 border-b bg-background py-2">
+          <header className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b bg-background px-3 py-2">
             <h3 className="text-sm font-medium">{STATUS_LABEL[status]}</h3>
             <Badge variant="outline">{byStatus[status].length}</Badge>
           </header>

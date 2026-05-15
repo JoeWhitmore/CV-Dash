@@ -10,11 +10,11 @@ const MAP: Record<string, Status> = {
   discovery: "to-do",
   design: "to-do",
   "needs design": "to-do",
-  blocked: "to-do",
+  blocked: "blocked",
   "in progress": "in-progress",
   building: "in-progress",
   "awaiting feedback": "in-progress",
-  "in review": "in-review",
+  "in review": "peer-review", // merged with Peer Review on the dashboard
   "peer review": "peer-review",
   "in qa": "testing",
   "testing/uat": "testing",
@@ -24,7 +24,7 @@ const MAP: Record<string, Status> = {
   // Common Jira defaults — retained for defensiveness
   open: "to-do",
   "in development": "in-progress",
-  "code review": "in-review",
+  "code review": "peer-review", // merged with Peer Review on the dashboard
   "ready for review": "peer-review",
   "in testing": "testing",
   qa: "testing",
