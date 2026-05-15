@@ -35,6 +35,7 @@ export interface Sprint {
 
 export interface BurndownPoint {
   date: string;
-  remaining: number;
+  /** null on synthetic anchor points (sprint end, future weekdays with no snapshot yet) */
+  remaining: number | null;
   ideal: number;
 }
