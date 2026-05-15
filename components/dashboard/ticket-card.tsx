@@ -26,7 +26,7 @@ export function TicketCard({ ticket, assignee }: Props) {
       target="_blank"
       rel="noreferrer"
       aria-label={`${ticket.key}: ${ticket.title}`}
-      className="block transition-shadow hover:shadow-md"
+      className="block rounded-xl transition-shadow hover:shadow-md"
     >
       <Card>
         <CardContent className="flex flex-col gap-2 p-3">

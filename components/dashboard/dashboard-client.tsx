@@ -66,7 +66,9 @@ export function DashboardClient({
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">{currentSprint.name}</h1>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-muted-foreground">{lastSyncLabel}</span>
+          <span className="text-xs text-muted-foreground" suppressHydrationWarning>
+            {lastSyncLabel}
+          </span>
           <SprintSelector
             sprints={sprints}
             value={currentSprint.id}

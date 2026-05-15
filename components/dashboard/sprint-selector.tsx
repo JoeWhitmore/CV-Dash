@@ -24,7 +24,9 @@ export function SprintSelector({ sprints, value, onChange }: Props) {
       }}
     >
       <SelectTrigger className="w-[220px]" aria-label="Select sprint">
-        <SelectValue placeholder="Select sprint" />
+        <SelectValue placeholder="Select sprint">
+          {(v: string | null) => sprints.find((s) => s.id === v)?.name ?? "Select sprint"}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         {sprints.map((sprint) => (
