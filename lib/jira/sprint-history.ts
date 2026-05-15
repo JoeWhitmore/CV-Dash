@@ -21,6 +21,9 @@ function parseSprintIds(value: string | null): Set<string> {
  *   2. If one exists: use its `toString` (the post-change sprint set) — true iff sprintId is in it.
  *   3. If none exists: fall back to "issue created before cutoff" — assume the ticket has been in
  *      the sprint since creation (setting Sprint at issue-creation does not always emit a change).
+ *
+ * Caller must pre-filter the issue to one that is currently or was ever in the sprint — this
+ * function does not verify Jira-side membership; it reconstructs the membership transitions only.
  */
 export function wasInSprintAt(input: WasInSprintInput): boolean {
   const { sprintId, issueCreated, changelog, at } = input;
@@ -31,7 +34,7 @@ export function wasInSprintAt(input: WasInSprintInput): boolean {
     .flatMap((h) =>
       h.items
         .filter((i) => i.field === "Sprint")
-        .map((i) => ({ created: new Date(h.created).getTime(), toString: i.toString })),
+        .map((i) => ({ created: new Date(h.created).getTime(), sprintValue: i.toString })),
     )
     .sort((a, b) => a.created - b.created);
 
@@ -40,5 +43,5 @@ export function wasInSprintAt(input: WasInSprintInput): boolean {
   }
 
   const last = sprintItems[sprintItems.length - 1];
-  return parseSprintIds(last.toString).has(sprintId);
+  return parseSprintIds(last.sprintValue).has(sprintId);
 }

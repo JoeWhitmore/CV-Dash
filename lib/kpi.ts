@@ -16,6 +16,10 @@ export function sprintKpis(sprint: Sprint, tickets: Ticket[], todayISO: string):
   const committedSet = sprint.committedTicketKeys
     ? new Set(sprint.committedTicketKeys)
     : null;
+  // Freeze path (committedTicketKeys set): sum all committed tickets regardless of status so
+  // pointsCommitted stays constant as tickets move through the board. This is intentional —
+  // the commitment is captured once at Monday 8AM Brisbane and must not drift.
+  // Fallback path (null): sum in-scope tickets only (pre-existing behavior, used before cutoff).
   const pointsCommitted = committedSet
     ? inSprint.filter((t) => committedSet.has(t.key)).reduce((s, t) => s + t.points, 0)
     : inScope.reduce((s, t) => s + t.points, 0);

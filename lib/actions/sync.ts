@@ -99,6 +99,8 @@ export async function syncFromJira(): Promise<SyncResult> {
 
       const sprintIssues = allIssues[i].issues;
       const committedKeys: string[] = [];
+      // One-time per sprint: this loop is skipped on all subsequent syncs once
+      // committedTicketKeys is persisted (see the `existingCommitments.has(...)` check above).
       for (const issue of sprintIssues) {
         const changelogResp = await fetchIssueChangelog(cfg, issue.key);
         const inAtCutoff = wasInSprintAt({

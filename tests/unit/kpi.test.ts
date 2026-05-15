@@ -60,7 +60,7 @@ describe("sprintKpis", () => {
     const tickets = [
       ticket("CV-1", "to-do", 3),
       ticket("CV-2", "in-progress", 5),
-      ticket("CV-SPILLOVER", "in-progress", 8),
+      ticket("CV-SPILLOVER", "in-progress", 99),
     ];
     const kpis = sprintKpis(sprintWithFreeze, tickets, "2026-05-14");
     expect(kpis.pointsCommitted).toBe(8);
@@ -88,6 +88,20 @@ describe("sprintKpis", () => {
     };
     const tickets = [ticket("CV-1", "to-do", 3), ticket("CV-2", "in-progress", 5)];
     const kpis = sprintKpis(sprintWithoutFreeze, tickets, "2026-05-14");
+    expect(kpis.pointsCommitted).toBe(8);
+  });
+
+  it("when committedTicketKeys is set, committed tickets that have moved to done still count (commitment is constant)", () => {
+    const sprintWithFreeze: Sprint = {
+      ...sprint,
+      ticketKeys: ["CV-1", "CV-2"],
+      committedTicketKeys: ["CV-1", "CV-2"],
+    };
+    const tickets = [
+      ticket("CV-1", "to-do", 3),
+      ticket("CV-2", "done", 5), // moved out of scope but stays in committed
+    ];
+    const kpis = sprintKpis(sprintWithFreeze, tickets, "2026-05-14");
     expect(kpis.pointsCommitted).toBe(8);
   });
 });
