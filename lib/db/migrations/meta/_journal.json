@@ -29,6 +29,13 @@
       "when": 1778828950953,
       "tag": "0003_light_arclight",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1779061481867,
+      "tag": "0004_volatile_whizzer",
+      "breakpoints": true
     }
   ]
 }

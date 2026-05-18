@@ -23,11 +23,7 @@ function authHeader(email: string, token: string): string {
   return `Basic ${Buffer.from(`${email}:${token}`).toString("base64")}`;
 }
 
-async function jiraFetch<T>(
-  url: string,
-  cfg: JiraConfig,
-  attempt = 1,
-): Promise<T> {
+async function jiraFetch<T>(url: string, cfg: JiraConfig, attempt = 1): Promise<T> {
   const res = await fetch(url, {
     headers: {
       Accept: "application/json",
@@ -59,7 +55,9 @@ async function jiraFetch<T>(
   return (await res.json()) as T;
 }
 
-export async function fetchActiveAndFutureSprints(cfg: JiraConfig): Promise<JiraSprintListResponse> {
+export async function fetchActiveAndFutureSprints(
+  cfg: JiraConfig,
+): Promise<JiraSprintListResponse> {
   const url = `${cfg.baseUrl}/rest/agile/1.0/board/${cfg.boardId}/sprint?state=active,future&maxResults=50`;
   return jiraFetch<JiraSprintListResponse>(url, cfg);
 }
@@ -95,6 +93,19 @@ export async function fetchIssuesForSprint(
   return { startAt: 0, maxResults: total, total, issues: all };
 }
 
+/**
+ * Fetches a single issue by key. Used for close-time snapshotting where the issue may no longer
+ * be returned by `/sprint/{id}/issue` (e.g. it was carried over to a newer sprint after close).
+ */
+export async function fetchIssueByKey(
+  cfg: JiraConfig,
+  key: string,
+): Promise<JiraIssueSearchResponse["issues"][number]> {
+  const fields = [...FIELDS, cfg.pointsField].join(",");
+  const url = `${cfg.baseUrl}/rest/api/3/issue/${encodeURIComponent(key)}?fields=${encodeURIComponent(fields)}`;
+  return jiraFetch<JiraIssueSearchResponse["issues"][number]>(url, cfg);
+}
+
 export function jiraConfigFromEnv(): JiraConfig {
   const baseUrl = process.env.JIRA_BASE_URL;
   const email = process.env.JIRA_EMAIL;
@@ -112,7 +123,13 @@ export function jiraConfigFromEnv(): JiraConfig {
     throw new Error(`Jira not configured. Missing env var(s): ${missing.join(", ")}.`);
   }
 
-  return { baseUrl: baseUrl!, email: email!, apiToken: apiToken!, boardId: boardId!, pointsField: pointsField! };
+  return {
+    baseUrl: baseUrl!,
+    email: email!,
+    apiToken: apiToken!,
+    boardId: boardId!,
+    pointsField: pointsField!,
+  };
 }
 
 /**

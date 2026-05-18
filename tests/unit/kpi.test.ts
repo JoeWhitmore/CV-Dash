@@ -130,6 +130,25 @@ describe("sprintKpis", () => {
     expect(kpis.percentComplete).toBe(37.5);
   });
 
+  it("when a committed ticket is removed from the sprint after freeze, it still counts as committed", () => {
+    // Regression: previously the scope was (current sprint members) ∩ (committed set),
+    // so a committed ticket later removed from the sprint dropped out of both numerator
+    // and denominator — pinning percentComplete at 100%.
+    const sprintWithFreeze: Sprint = {
+      ...sprint,
+      ticketKeys: ["CV-1"], // CV-2 was removed from the sprint after Monday 8am freeze
+      committedTicketKeys: ["CV-1", "CV-2"],
+    };
+    const tickets = [
+      ticket("CV-1", "done", 3),
+      ticket("CV-2", "to-do", 5), // committed but no longer in sprint
+    ];
+    const kpis = sprintKpis(sprintWithFreeze, tickets, "2026-05-14");
+    expect(kpis.pointsCommitted).toBe(8);
+    expect(kpis.pointsToPr).toBe(3);
+    expect(kpis.percentComplete).toBe(37.5);
+  });
+
   it("when committedTicketKeys is null, pointsToPr counts every sprint ticket past peer-review", () => {
     const sprintWithoutFreeze: Sprint = {
       ...sprint,

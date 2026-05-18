@@ -3,6 +3,7 @@ import {
   index,
   integer,
   pgTable,
+  primaryKey,
   serial,
   text,
   timestamp,
@@ -19,6 +20,7 @@ export const sprints = pgTable("sprints", {
   baselineCapturedAt: timestamp("baseline_captured_at", { withTimezone: true }),
   committedTicketKeys: text("committed_ticket_keys").array(),
   committedCapturedAt: timestamp("committed_captured_at", { withTimezone: true }),
+  closedSnapshotCapturedAt: timestamp("closed_snapshot_captured_at", { withTimezone: true }),
   jiraBoardId: text("jira_board_id").notNull(),
 });
 
@@ -56,9 +58,7 @@ export const burndownSnapshots = pgTable(
       .notNull()
       .references(() => sprints.id),
     forDate: date("for_date").notNull(),
-    capturedAt: timestamp("captured_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
     remainingPoints: integer("remaining_points").notNull(),
     totalPoints: integer("total_points").notNull(),
     committedRemainingPoints: integer("committed_remaining_points"),
@@ -67,6 +67,30 @@ export const burndownSnapshots = pgTable(
     index("burndown_snapshots_sprint_captured_idx").on(t.sprintId, t.capturedAt),
     uniqueIndex("burndown_snapshots_sprint_for_date_idx").on(t.sprintId, t.forDate),
   ],
+);
+
+/**
+ * Frozen snapshot of a sprint's ticket roster at the moment the sprint closed. Mirrors the
+ * `tickets` shape (title, type, status, points, assigneeId) but composite-keyed on
+ * (sprint_id, key), so the same ticket can have snapshots in multiple closed sprints (e.g.
+ * a ticket that spans two sprints because it was re-opened). Read by `getTickets` /
+ * `getSprints` / `getBurndown` for any sprint whose state is 'closed'.
+ */
+export const closedSprintTickets = pgTable(
+  "closed_sprint_tickets",
+  {
+    sprintId: text("sprint_id")
+      .notNull()
+      .references(() => sprints.id),
+    key: text("key").notNull(),
+    title: text("title").notNull(),
+    type: text("type").notNull(),
+    status: text("status").notNull(), // status at sprint endDate
+    points: integer("points").notNull().default(0),
+    assigneeId: text("assignee_id").references(() => teamMembers.id),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.sprintId, t.key] })],
 );
 
 export const syncRuns = pgTable("sync_runs", {

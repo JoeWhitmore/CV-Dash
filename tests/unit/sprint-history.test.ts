@@ -18,6 +18,22 @@ const sprintChange = (
   items: [{ field: "Sprint", from, fromString: from, to, toString: to }],
 });
 
+// Real Jira changelog: `to`/`from` carry IDs, `toString`/`fromString` carry display names.
+// wasInSprintAt must match against IDs (i.to) since the caller passes a numeric sprintId.
+const realSprintChange = (
+  created: string,
+  fromIds: string,
+  fromNames: string,
+  toIds: string,
+  toNames: string,
+): JiraChangelogEntry => ({
+  id: created,
+  created,
+  items: [
+    { field: "Sprint", from: fromIds, fromString: fromNames, to: toIds, toString: toNames },
+  ],
+});
+
 const noise = (created: string): JiraChangelogEntry => ({
   id: created,
   created,
@@ -107,6 +123,23 @@ describe("wasInSprintAt", () => {
     ).toBe(true);
   });
 
+  it("matches against sprint IDs from `to`, not display names from `toString`", () => {
+    // Regression: Jira changelog Sprint items expose IDs (e.g. "1649, 1650") in `to` and
+    // names (e.g. "Sprint 39, Sprint 40") in `toString`. Caller passes a sprint ID, so the
+    // matcher must compare against `to`. Using `toString` causes every committed ticket with
+    // a sprint transition to silently fall out of the close-time snapshot.
+    expect(
+      wasInSprintAt({
+        sprintId: "1650",
+        issueCreated: "2026-05-01T00:00:00Z",
+        changelog: [
+          realSprintChange("2026-05-03T10:00:00Z", "1649", "Sprint 39", "1649, 1650", "Sprint 39, Sprint 40"),
+        ],
+        at: cutoff,
+      }),
+    ).toBe(true);
+  });
+
   it("uses the LATEST Sprint change before cutoff (not the first)", () => {
     expect(
       wasInSprintAt({
@@ -119,6 +152,32 @@ describe("wasInSprintAt", () => {
         at: cutoff,
       }),
     ).toBe(false);
+  });
+
+  it("matches against sprint IDs (`to`), not sprint names (`toString`) — real Jira shape", () => {
+    // Real Jira changelog: `to` is comma-separated IDs, `toString` is the matching names.
+    // sprintId is a numeric string; matching against `toString` would never hit.
+    const realJiraSprintChange: JiraChangelogEntry = {
+      id: "real",
+      created: "2026-05-03T10:00:00Z",
+      items: [
+        {
+          field: "Sprint",
+          from: "1649, 1650",
+          fromString: "Sprint 39, Sprint 40",
+          to: "1649, 1650, 42",
+          toString: "Sprint 39, Sprint 40, Sprint 41",
+        },
+      ],
+    };
+    expect(
+      wasInSprintAt({
+        sprintId: "42",
+        issueCreated: "2026-04-01T00:00:00Z",
+        changelog: [realJiraSprintChange],
+        at: cutoff,
+      }),
+    ).toBe(true);
   });
 });
 

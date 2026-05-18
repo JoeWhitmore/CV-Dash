@@ -19,7 +19,7 @@ function parseSprintIds(value: string | null): Set<string> {
  *
  * Algorithm:
  *   1. Find the latest Sprint changelog entry with created <= at.
- *   2. If one exists: use its `toString` (the post-change sprint set) — true iff sprintId is in it.
+ *   2. If one exists: use its `to` (comma-separated sprint IDs) — true iff sprintId is in it.
  *   3. If none exists: fall back to "issue created before cutoff" — assume the ticket has been in
  *      the sprint since creation (setting Sprint at issue-creation does not always emit a change).
  *
@@ -30,12 +30,17 @@ export function wasInSprintAt(input: WasInSprintInput): boolean {
   const { sprintId, issueCreated, changelog, at } = input;
   const cutoff = at.getTime();
 
+  // Jira's Sprint changelog item exposes two parallel fields: `to` is a comma-separated
+  // list of sprint IDs (e.g. "1649, 1650, 1683") and `toString` is the matching list of
+  // sprint names (e.g. "Sprint 39, Sprint 40, Sprint 41"). The caller passes a sprintId
+  // (numeric string), so we must compare against `to`, not `toString` — otherwise every
+  // ticket that was moved between sprints via changelog gets dropped from the freeze.
   const sprintItems = changelog
     .filter((h) => new Date(h.created).getTime() <= cutoff)
     .flatMap((h) =>
       h.items
         .filter((i) => i.field === "Sprint")
-        .map((i) => ({ created: new Date(h.created).getTime(), sprintValue: i.toString })),
+        .map((i) => ({ created: new Date(h.created).getTime(), sprintValue: i.to })),
     )
     .sort((a, b) => a.created - b.created);
 

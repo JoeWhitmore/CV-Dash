@@ -1,22 +1,29 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { and, eq, gt, inArray, notInArray, sql } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import {
-  jiraConfigFromEnv,
   fetchActiveAndFutureSprints,
+  fetchIssueByKey,
   fetchIssueChangelog,
   fetchIssuesForSprint,
+  jiraConfigFromEnv,
 } from "@/lib/jira/client";
 import { parseIssueIntoTicket, parseSprintList } from "@/lib/jira/parsers";
-import { deriveTeam } from "@/lib/sync/team-derivation";
-import { REMAINING_STATUSES, buildSyncWrite } from "@/lib/sync/reducer";
-import { committedCutoff } from "@/lib/sprint/cutoff";
 import { statusAtTime, wasInSprintAt } from "@/lib/jira/sprint-history";
 import { mapJiraStatus } from "@/lib/jira/status-map";
-import { enumerateWorkingDays } from "@/lib/working-days";
 import type { JiraChangelogEntry, JiraIssue } from "@/lib/jira/types";
+import { committedCutoff } from "@/lib/sprint/cutoff";
+import {
+  buildClosedSprintBurndownSnapshot,
+  buildClosedSprintSnapshot,
+  type CloseBurndownSnapshot,
+  type CloseSnapshotCandidate,
+} from "@/lib/sync/close-snapshot";
+import { buildSyncWrite, REMAINING_STATUSES } from "@/lib/sync/reducer";
+import { deriveTeam } from "@/lib/sync/team-derivation";
+import { enumerateWorkingDays } from "@/lib/working-days";
 
 /**
  * End-of-working-day Brisbane (UTC+10) as a UTC Date. e.g. "2026-05-11" → 2026-05-11 24:00 +10:00
@@ -66,9 +73,7 @@ export async function syncFromJira(): Promise<SyncResult> {
     const sprintsResp = await fetchActiveAndFutureSprints(cfg);
     const parsedSprints = parseSprintList(sprintsResp);
 
-    const allIssues = await Promise.all(
-      parsedSprints.map((s) => fetchIssuesForSprint(cfg, s.id)),
-    );
+    const allIssues = await Promise.all(parsedSprints.map((s) => fetchIssuesForSprint(cfg, s.id)));
     const warnings: string[] = [];
     const parsedTickets = [];
     const parsedAssignees = [];
@@ -88,13 +93,19 @@ export async function syncFromJira(): Promise<SyncResult> {
     const existingBaselines = new Map(
       existingSprintRows
         .filter((s) => s.baselinePoints != null && s.baselineCapturedAt != null)
-        .map((s) => [s.id, { baselinePoints: s.baselinePoints!, baselineCapturedAt: s.baselineCapturedAt! }]),
+        .map((s) => [
+          s.id,
+          { baselinePoints: s.baselinePoints!, baselineCapturedAt: s.baselineCapturedAt! },
+        ]),
     );
 
     const existingCommitments = new Map(
       existingSprintRows
         .filter((s) => s.committedTicketKeys != null && s.committedCapturedAt != null)
-        .map((s) => [s.id, { ticketKeys: s.committedTicketKeys!, capturedAt: s.committedCapturedAt! }]),
+        .map((s) => [
+          s.id,
+          { ticketKeys: s.committedTicketKeys!, capturedAt: s.committedCapturedAt! },
+        ]),
     );
 
     const now = new Date();
@@ -104,7 +115,11 @@ export async function syncFromJira(): Promise<SyncResult> {
     // have the changelogs in memory, also reconstruct historical committed_remaining per working
     // day so the burndown's actual line has accurate values from day 1.
     const commitmentFreezes = new Map<string, string[]>();
-    const historicalCommittedRemaining: Array<{ sprintId: string; forDate: string; value: number }> = [];
+    const historicalCommittedRemaining: Array<{
+      sprintId: string;
+      forDate: string;
+      value: number;
+    }> = [];
 
     for (let i = 0; i < parsedSprints.length; i++) {
       const s = parsedSprints[i];
@@ -119,6 +134,10 @@ export async function syncFromJira(): Promise<SyncResult> {
 
       // One-time per sprint: this loop is skipped on all subsequent syncs once
       // committedTicketKeys is persisted (see the `existingCommitments.has(...)` check above).
+      // A ticket joins the committed set iff it was both (a) in the sprint at the cutoff and
+      // (b) in a "remaining" status (to-do / in-progress / blocked) at the cutoff. Carryover
+      // tickets that arrived already in peer-review / testing / done / closed are excluded —
+      // they weren't newly committed to this sprint.
       for (const issue of sprintIssues) {
         const changelogResp = await fetchIssueChangelog(cfg, issue.key);
         ticketChangelogs.set(issue.key, changelogResp.values);
@@ -129,7 +148,13 @@ export async function syncFromJira(): Promise<SyncResult> {
           changelog: changelogResp.values,
           at: cutoff,
         });
-        if (inAtCutoff) committedKeys.push(issue.key);
+        if (!inAtCutoff) continue;
+        const statusAtCutoff = statusAtTime({
+          currentStatus: mapJiraStatus(issue.fields.status.name).status,
+          changelog: changelogResp.values,
+          at: cutoff,
+        });
+        if (REMAINING_STATUSES.has(statusAtCutoff)) committedKeys.push(issue.key);
       }
       commitmentFreezes.set(s.id, committedKeys);
 
@@ -163,6 +188,78 @@ export async function syncFromJira(): Promise<SyncResult> {
       }
     }
 
+    // Detect sprints that have just transitioned out of active/future since the last sync —
+    // i.e. Jira no longer returns them but our DB still has them flagged as active/future and
+    // we haven't yet captured a close snapshot. Snapshot each one's roster at endDate before
+    // the rest of the sync runs (the upsert below would otherwise reassign carried-over tickets'
+    // sprintId, erasing membership history). Same pattern as the committed-freeze loop above:
+    // one-shot per sprint, gated by closedSnapshotCapturedAt.
+    const fetchedSprintIds = new Set(parsedSprints.map((s) => s.id));
+    const newlyClosedSprints = existingSprintRows.filter(
+      (s) =>
+        !fetchedSprintIds.has(s.id) &&
+        (s.state === "active" || s.state === "future") &&
+        s.closedSnapshotCapturedAt == null,
+    );
+
+    const closeSnapshotWrites: Array<{
+      sprintId: string;
+      rows: ReturnType<typeof buildClosedSprintSnapshot>;
+      finalBurndown: CloseBurndownSnapshot | null;
+    }> = [];
+
+    for (const s of newlyClosedSprints) {
+      if (!s.endDate) {
+        warnings.push(
+          `Sprint ${s.id} (${s.name}) has no endDate — cannot snapshot close-time state`,
+        );
+        continue;
+      }
+
+      // Candidate keys = (tickets currently associated with this sprint in our DB) ∪
+      // (frozen committedTicketKeys). Covers both tickets that stayed put and committed
+      // tickets that may have been carried out before close.
+      const liveKeyRows = await db
+        .select({ key: schema.tickets.key })
+        .from(schema.tickets)
+        .where(eq(schema.tickets.sprintId, s.id));
+      const candidateKeys = Array.from(
+        new Set<string>([...liveKeyRows.map((r) => r.key), ...(s.committedTicketKeys ?? [])]),
+      );
+
+      const candidates: CloseSnapshotCandidate[] = [];
+      for (const key of candidateKeys) {
+        try {
+          const [issue, cl] = await Promise.all([
+            fetchIssueByKey(cfg, key),
+            fetchIssueChangelog(cfg, key),
+          ]);
+          candidates.push({ issue, changelog: cl.values });
+        } catch (err) {
+          warnings.push(
+            `Sprint ${s.id} close snapshot: failed to fetch ${key} — ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+
+      const rows = buildClosedSprintSnapshot({
+        sprintId: s.id,
+        sprintEndDate: s.endDate,
+        pointsField: cfg.pointsField,
+        candidates,
+        committedKeys: new Set(s.committedTicketKeys ?? []),
+        now,
+      });
+      const finalBurndown = buildClosedSprintBurndownSnapshot({
+        sprintId: s.id,
+        sprintEndDate: s.endDate,
+        snapshot: rows,
+        committedTicketKeys: s.committedTicketKeys ?? null,
+        now,
+      });
+      closeSnapshotWrites.push({ sprintId: s.id, rows, finalBurndown });
+    }
+
     const write = buildSyncWrite({
       sprints: parsedSprints,
       tickets: parsedTickets,
@@ -175,65 +272,112 @@ export async function syncFromJira(): Promise<SyncResult> {
 
     await db.transaction(async (tx) => {
       if (write.sprintUpserts.length > 0) {
-        await tx.insert(schema.sprints).values(write.sprintUpserts).onConflictDoUpdate({
-          target: schema.sprints.id,
-          set: {
-            name: sql`excluded.name`,
-            state: sql`excluded.state`,
-            startDate: sql`excluded.start_date`,
-            endDate: sql`excluded.end_date`,
-            baselinePoints: sql`excluded.baseline_points`,
-            baselineCapturedAt: sql`excluded.baseline_captured_at`,
-            committedTicketKeys: sql`excluded.committed_ticket_keys`,
-            committedCapturedAt: sql`excluded.committed_captured_at`,
-            jiraBoardId: sql`excluded.jira_board_id`,
-          },
-        });
+        await tx
+          .insert(schema.sprints)
+          .values(write.sprintUpserts)
+          .onConflictDoUpdate({
+            target: schema.sprints.id,
+            set: {
+              name: sql`excluded.name`,
+              state: sql`excluded.state`,
+              startDate: sql`excluded.start_date`,
+              endDate: sql`excluded.end_date`,
+              baselinePoints: sql`excluded.baseline_points`,
+              baselineCapturedAt: sql`excluded.baseline_captured_at`,
+              committedTicketKeys: sql`excluded.committed_ticket_keys`,
+              committedCapturedAt: sql`excluded.committed_captured_at`,
+              jiraBoardId: sql`excluded.jira_board_id`,
+            },
+          });
       }
       if (write.teamUpserts.length > 0) {
-        await tx.insert(schema.teamMembers).values(write.teamUpserts).onConflictDoUpdate({
-          target: schema.teamMembers.jiraAccountId,
-          set: {
-            id: sql`excluded.id`,
-            name: sql`excluded.name`,
-            initials: sql`excluded.initials`,
-            avatarUrl: sql`excluded.avatar_url`,
-          },
-        });
+        await tx
+          .insert(schema.teamMembers)
+          .values(write.teamUpserts)
+          .onConflictDoUpdate({
+            target: schema.teamMembers.jiraAccountId,
+            set: {
+              id: sql`excluded.id`,
+              name: sql`excluded.name`,
+              initials: sql`excluded.initials`,
+              avatarUrl: sql`excluded.avatar_url`,
+            },
+          });
       }
       if (write.ticketUpserts.length > 0) {
-        await tx.insert(schema.tickets).values(write.ticketUpserts).onConflictDoUpdate({
-          target: schema.tickets.key,
-          set: {
-            title: sql`excluded.title`,
-            type: sql`excluded.type`,
-            status: sql`excluded.status`,
-            points: sql`excluded.points`,
-            assigneeId: sql`excluded.assignee_id`,
-            sprintId: sql`excluded.sprint_id`,
-            jiraUpdatedAt: sql`excluded.jira_updated_at`,
-            lastSyncedAt: sql`excluded.last_synced_at`,
-          },
-        });
+        await tx
+          .insert(schema.tickets)
+          .values(write.ticketUpserts)
+          .onConflictDoUpdate({
+            target: schema.tickets.key,
+            set: {
+              title: sql`excluded.title`,
+              type: sql`excluded.type`,
+              status: sql`excluded.status`,
+              points: sql`excluded.points`,
+              assigneeId: sql`excluded.assignee_id`,
+              sprintId: sql`excluded.sprint_id`,
+              jiraUpdatedAt: sql`excluded.jira_updated_at`,
+              lastSyncedAt: sql`excluded.last_synced_at`,
+            },
+          });
       }
       if (write.activeSprintIds.length > 0) {
-        await tx.delete(schema.tickets).where(
-          and(
-            notInArray(schema.tickets.key, write.activeTicketKeys.length > 0 ? write.activeTicketKeys : [""]),
-            inArray(schema.tickets.sprintId, write.activeSprintIds),
-          ),
-        );
+        await tx
+          .delete(schema.tickets)
+          .where(
+            and(
+              notInArray(
+                schema.tickets.key,
+                write.activeTicketKeys.length > 0 ? write.activeTicketKeys : [""],
+              ),
+              inArray(schema.tickets.sprintId, write.activeSprintIds),
+            ),
+          );
       }
       if (write.burndownSnapshots.length > 0) {
-        await tx.insert(schema.burndownSnapshots).values(write.burndownSnapshots).onConflictDoUpdate({
-          target: [schema.burndownSnapshots.sprintId, schema.burndownSnapshots.forDate],
-          set: {
-            remainingPoints: sql`excluded.remaining_points`,
-            totalPoints: sql`excluded.total_points`,
-            committedRemainingPoints: sql`excluded.committed_remaining_points`,
-            capturedAt: sql`excluded.captured_at`,
-          },
-        });
+        await tx
+          .insert(schema.burndownSnapshots)
+          .values(write.burndownSnapshots)
+          .onConflictDoUpdate({
+            target: [schema.burndownSnapshots.sprintId, schema.burndownSnapshots.forDate],
+            set: {
+              remainingPoints: sql`excluded.remaining_points`,
+              totalPoints: sql`excluded.total_points`,
+              committedRemainingPoints: sql`excluded.committed_remaining_points`,
+              capturedAt: sql`excluded.captured_at`,
+            },
+          });
+      }
+
+      // Persist close-time snapshots for newly-closed sprints. Insert ignores conflicts so the
+      // capture is idempotent if a retry races us. Also write a final burndown_snapshots row at
+      // sprint endDate so the chart's actual line reaches the last working day (the daily cron
+      // stops capturing snapshots once the sprint leaves active+future, so without this the
+      // actual line trails off short of sprint end). After insert, mark the sprint as closed +
+      // record the capture timestamp — gates re-entry into the close-detection branch above.
+      for (const w of closeSnapshotWrites) {
+        if (w.rows.length > 0) {
+          await tx.insert(schema.closedSprintTickets).values(w.rows).onConflictDoNothing();
+        }
+        if (w.finalBurndown) {
+          await tx
+            .insert(schema.burndownSnapshots)
+            .values(w.finalBurndown)
+            .onConflictDoUpdate({
+              target: [schema.burndownSnapshots.sprintId, schema.burndownSnapshots.forDate],
+              set: {
+                remainingPoints: sql`excluded.remaining_points`,
+                totalPoints: sql`excluded.total_points`,
+                committedRemainingPoints: sql`excluded.committed_remaining_points`,
+                capturedAt: sql`excluded.captured_at`,
+              },
+            });
+        }
+        await tx
+          .update(schema.sprints)
+          .set({ state: "closed", closedSnapshotCapturedAt: now })
+          .where(eq(schema.sprints.id, w.sprintId));
       }
 
       // Backfill historical committed_remaining_points on past snapshots when this run is freshly
