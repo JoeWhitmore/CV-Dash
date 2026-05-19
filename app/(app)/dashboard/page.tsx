@@ -4,6 +4,7 @@ import { EmptyState } from "@/components/dashboard/empty-state";
 import {
   getBurndown,
   getCurrentSprintId,
+  getEpics,
   getLastSyncedAt,
   getSprints,
   getTeam,
@@ -22,11 +23,12 @@ export default async function DashboardPage({
   const currentId = sp.sprint ?? (await getCurrentSprintId()) ?? sprints[0].id;
   const sprint = sprints.find((s) => s.id === currentId) ?? sprints[0];
 
-  const [tickets, team, burndown, lastSyncedAt] = await Promise.all([
+  const [tickets, team, burndown, lastSyncedAt, epics] = await Promise.all([
     getTickets(sprint.id),
     getTeam(),
     getBurndown(sprint.id),
     getLastSyncedAt(),
+    getEpics(),
   ]);
 
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -38,6 +40,7 @@ export default async function DashboardPage({
         currentSprint={sprint}
         tickets={tickets}
         team={team}
+        epics={epics}
         burndown={burndown}
         lastSyncedAt={lastSyncedAt ? lastSyncedAt.toISOString() : null}
         todayIso={todayIso}

@@ -7,6 +7,7 @@ const sprint = (id: string, name: string): ParsedSprint => ({
   name,
   state: "active",
   startDate: "2026-05-05",
+  startedAt: new Date("2026-05-05T00:00:00+10:00"),
   endDate: "2026-05-18",
   jiraBoardId: "36",
 });

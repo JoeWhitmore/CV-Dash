@@ -12,7 +12,7 @@ export function KpiRow({ kpis }: Props) {
       <KpiTile
         label="Points committed"
         value={String(kpis.pointsCommitted)}
-        hint="Frozen at Mon 8am Brisbane"
+        hint="Frozen at sprint start"
       />
       <KpiTile label="Points to PR" value={String(kpis.pointsToPr)} hint="Reached Peer Review" />
       <KpiTile label="% complete" value={`${pct}%`} />

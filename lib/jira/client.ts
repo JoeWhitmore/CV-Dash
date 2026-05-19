@@ -133,6 +133,77 @@ export function jiraConfigFromEnv(): JiraConfig {
 }
 
 /**
+ * Fetches every Epic in the project. Used by the Epics tab — independent of sprint membership.
+ * Uses /rest/api/3/search with JQL. Pagination via `nextPageToken` because the new search API
+ * deprecates startAt for large result sets.
+ */
+export async function fetchAllEpics(
+  cfg: JiraConfig,
+  projectKey: string,
+): Promise<JiraIssueSearchResponse> {
+  const fields = ["summary", "status"].join(",");
+  const all: JiraIssueSearchResponse["issues"] = [];
+  let nextPageToken: string | undefined;
+
+  while (true) {
+    const params = new URLSearchParams({
+      jql: `project = ${projectKey} AND issuetype = Epic`,
+      fields,
+      maxResults: String(PAGE_SIZE),
+    });
+    if (nextPageToken) params.set("nextPageToken", nextPageToken);
+    const url = `${cfg.baseUrl}/rest/api/3/search/jql?${params.toString()}`;
+    const page = await jiraFetch<
+      JiraIssueSearchResponse & { nextPageToken?: string; isLast?: boolean }
+    >(url, cfg);
+    all.push(...page.issues);
+    if (page.isLast || !page.nextPageToken || page.issues.length === 0) break;
+    nextPageToken = page.nextPageToken;
+  }
+
+  return { startAt: 0, maxResults: all.length, total: all.length, issues: all };
+}
+
+/**
+ * Fetches all child issues under any of the supplied epic keys, in one paginated JQL.
+ * Used to derive ticketCount and assignee set for each epic. JQL is chunked at 50 keys
+ * per call to stay well under Jira's URL length limits.
+ */
+export async function fetchEpicChildren(
+  cfg: JiraConfig,
+  projectKey: string,
+  epicKeys: string[],
+): Promise<JiraIssueSearchResponse["issues"]> {
+  if (epicKeys.length === 0) return [];
+  const CHUNK = 50;
+  const fields = ["summary", "status", "assignee", "parent"].join(",");
+  const all: JiraIssueSearchResponse["issues"] = [];
+
+  for (let i = 0; i < epicKeys.length; i += CHUNK) {
+    const chunk = epicKeys.slice(i, i + CHUNK);
+    const jql = `project = ${projectKey} AND parent in (${chunk.join(",")})`;
+    let nextPageToken: string | undefined;
+    while (true) {
+      const params = new URLSearchParams({
+        jql,
+        fields,
+        maxResults: String(PAGE_SIZE),
+      });
+      if (nextPageToken) params.set("nextPageToken", nextPageToken);
+      const url = `${cfg.baseUrl}/rest/api/3/search/jql?${params.toString()}`;
+      const page = await jiraFetch<
+        JiraIssueSearchResponse & { nextPageToken?: string; isLast?: boolean }
+      >(url, cfg);
+      all.push(...page.issues);
+      if (page.isLast || !page.nextPageToken || page.issues.length === 0) break;
+      nextPageToken = page.nextPageToken;
+    }
+  }
+
+  return all;
+}
+
+/**
  * Fetches the full changelog for an issue, paginating until exhausted.
  * Uses /rest/api/3 because the agile endpoint does not expose per-issue changelog.
  */

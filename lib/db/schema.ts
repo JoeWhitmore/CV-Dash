@@ -93,6 +93,34 @@ export const closedSprintTickets = pgTable(
   (t) => [primaryKey({ columns: [t.sprintId, t.key] })],
 );
 
+/**
+ * Project-wide epic catalogue. Independent of sprint membership — we track every epic in CV
+ * regardless of which sprint (if any) its children live in. Status is the raw Jira status name
+ * (e.g. "Discovery", "Building", "In QA"); the client maps it to the user-facing label via
+ * EPIC_STAGES in epics-panel.tsx. ticketCount is the total number of child issues; assignees
+ * (the unique set of people working under the epic) lives in epic_assignees.
+ */
+export const epics = pgTable("epics", {
+  key: text("key").primaryKey(), // 'CV-5423'
+  title: text("title").notNull(),
+  status: text("status").notNull(), // raw Jira status string
+  ticketCount: integer("ticket_count").notNull().default(0),
+  lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }).notNull(),
+});
+
+export const epicAssignees = pgTable(
+  "epic_assignees",
+  {
+    epicKey: text("epic_key")
+      .notNull()
+      .references(() => epics.key, { onDelete: "cascade" }),
+    assigneeId: text("assignee_id")
+      .notNull()
+      .references(() => teamMembers.id),
+  },
+  (t) => [primaryKey({ columns: [t.epicKey, t.assigneeId] })],
+);
+
 export const syncRuns = pgTable("sync_runs", {
   id: serial("id").primaryKey(),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),

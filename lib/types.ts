@@ -39,3 +39,11 @@ export interface BurndownPoint {
   remaining: number | null;
   ideal: number;
 }
+
+export interface Epic {
+  key: string;
+  title: string;
+  status: string; // raw Jira status string ("Discovery", "In QA", ...). Mapped to a display label client-side.
+  ticketCount: number;
+  assigneeIds: string[]; // unique team_members.id of assignees on non-Done child tickets
+}

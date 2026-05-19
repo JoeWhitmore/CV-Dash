@@ -1,7 +1,7 @@
 import { desc, eq, inArray } from "drizzle-orm";
 import { projectBurndown } from "@/lib/burndown";
 import { db, schema } from "@/lib/db";
-import type { BurndownPoint, Sprint, TeamMember, Ticket } from "@/lib/types";
+import type { BurndownPoint, Epic, Sprint, TeamMember, Ticket } from "@/lib/types";
 
 export async function getSprints(): Promise<Sprint[]> {
   const rows = await db.select().from(schema.sprints);
@@ -85,8 +85,7 @@ export async function getTickets(sprintId: string): Promise<Ticket[]> {
   // both pointsCommitted and pointsToPr in sprintKpis would silently shrink and the
   // ratio would stay at 100%.
   const liveKeys = new Set(liveRows.map((r) => r.key));
-  const missingCommitted =
-    sprint?.committedTicketKeys?.filter((k) => !liveKeys.has(k)) ?? [];
+  const missingCommitted = sprint?.committedTicketKeys?.filter((k) => !liveKeys.has(k)) ?? [];
   const movedOutRows =
     missingCommitted.length > 0
       ? await db.select().from(schema.tickets).where(inArray(schema.tickets.key, missingCommitted))
@@ -163,6 +162,41 @@ export async function getBurndown(sprintId: string): Promise<BurndownPoint[]> {
     },
     snapshots,
   });
+}
+
+export async function getEpics(): Promise<Epic[]> {
+  // Two reads + one in-memory join. Cheaper than the equivalent SQL join for this row volume
+  // (~100 epics × a handful of assignees each) and mirrors getSprints's existing approach.
+  const epicRows = await db
+    .select({
+      key: schema.epics.key,
+      title: schema.epics.title,
+      status: schema.epics.status,
+      ticketCount: schema.epics.ticketCount,
+    })
+    .from(schema.epics);
+
+  const assigneeRows = await db
+    .select({
+      epicKey: schema.epicAssignees.epicKey,
+      assigneeId: schema.epicAssignees.assigneeId,
+    })
+    .from(schema.epicAssignees);
+
+  const assigneesByEpic = new Map<string, string[]>();
+  for (const a of assigneeRows) {
+    const arr = assigneesByEpic.get(a.epicKey) ?? [];
+    arr.push(a.assigneeId);
+    assigneesByEpic.set(a.epicKey, arr);
+  }
+
+  return epicRows.map((e) => ({
+    key: e.key,
+    title: e.title,
+    status: e.status,
+    ticketCount: e.ticketCount,
+    assigneeIds: assigneesByEpic.get(e.key) ?? [],
+  }));
 }
 
 export async function getLastSyncedAt(): Promise<Date | null> {

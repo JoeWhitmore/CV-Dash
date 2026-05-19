@@ -5,16 +5,23 @@ import { revalidatePath } from "next/cache";
 import { db, schema } from "@/lib/db";
 import {
   fetchActiveAndFutureSprints,
+  fetchAllEpics,
+  fetchEpicChildren,
   fetchIssueByKey,
   fetchIssueChangelog,
   fetchIssuesForSprint,
   jiraConfigFromEnv,
 } from "@/lib/jira/client";
-import { parseIssueIntoTicket, parseSprintList } from "@/lib/jira/parsers";
+import {
+  type ParsedAssignee,
+  parseEpic,
+  parseEpicChild,
+  parseIssueIntoTicket,
+  parseSprintList,
+} from "@/lib/jira/parsers";
 import { statusAtTime, wasInSprintAt } from "@/lib/jira/sprint-history";
 import { mapJiraStatus } from "@/lib/jira/status-map";
 import type { JiraChangelogEntry, JiraIssue } from "@/lib/jira/types";
-import { committedCutoff } from "@/lib/sprint/cutoff";
 import {
   buildClosedSprintBurndownSnapshot,
   buildClosedSprintSnapshot,
@@ -87,7 +94,64 @@ export async function syncFromJira(): Promise<SyncResult> {
       }
     }
 
-    const team = deriveTeam(parsedAssignees);
+    const now = new Date();
+
+    // Fetch the project-wide epic catalogue + every child issue under those epics. Done outside
+    // the sprint loop because epics live independently of sprint membership (an epic in "Building"
+    // may have no children in the active sprint).
+    const projectKey = parsedTickets[0]?.key.split("-")[0] ?? "CV";
+    const epicsResp = await fetchAllEpics(cfg, projectKey);
+    const parsedEpics = epicsResp.issues.map(parseEpic);
+    const childIssues = await fetchEpicChildren(
+      cfg,
+      projectKey,
+      parsedEpics.map((e) => e.key),
+    );
+    const parsedChildren = childIssues.map(parseEpicChild);
+
+    // Merge child-ticket assignees into the team derivation. Without this, anyone working only on
+    // tickets outside the active/future sprints would be missing from team_members, and the
+    // epic_assignees insert below would fail its FK check.
+    const childAssignees = parsedChildren
+      .map((c) => c.assignee)
+      .filter((a): a is ParsedAssignee => a !== null);
+    const team = deriveTeam([...parsedAssignees, ...childAssignees]);
+
+    // Group children by epic + compute per-epic ticket count and unique assignee set.
+    // Assignee set excludes children in terminal Jira statuses so retired-ticket assignees fall
+    // off the card. Ticket count is total scope (all children) — matches the user's intent of
+    // "how big is this epic".
+    const TERMINAL_CHILD_STATUSES = new Set(["Done", "Closed"]);
+    const childrenByEpic = new Map<string, typeof parsedChildren>();
+    for (const c of parsedChildren) {
+      if (!c.epicKey) continue;
+      const arr = childrenByEpic.get(c.epicKey) ?? [];
+      arr.push(c);
+      childrenByEpic.set(c.epicKey, arr);
+    }
+
+    const epicUpserts = parsedEpics.map((e) => ({
+      key: e.key,
+      title: e.title,
+      status: e.status,
+      ticketCount: (childrenByEpic.get(e.key) ?? []).length,
+      lastSyncedAt: now,
+    }));
+
+    const epicAssigneeRows: { epicKey: string; assigneeId: string }[] = [];
+    for (const e of parsedEpics) {
+      const children = childrenByEpic.get(e.key) ?? [];
+      const ids = new Set<string>();
+      for (const c of children) {
+        if (TERMINAL_CHILD_STATUSES.has(c.childStatus)) continue;
+        if (c.assignee) ids.add(c.assignee.id);
+      }
+      for (const id of ids) {
+        epicAssigneeRows.push({ epicKey: e.key, assigneeId: id });
+      }
+    }
+
+    const activeEpicKeys = parsedEpics.map((e) => e.key);
 
     const existingSprintRows = await db.select().from(schema.sprints);
     const existingBaselines = new Map(
@@ -108,8 +172,6 @@ export async function syncFromJira(): Promise<SyncResult> {
         ]),
     );
 
-    const now = new Date();
-
     // For each sprint past its Monday 8AM Brisbane cutoff with no existing commitment, reconstruct
     // the ticket set that was in the sprint at cutoff using each ticket's Jira changelog. While we
     // have the changelogs in memory, also reconstruct historical committed_remaining per working
@@ -124,7 +186,10 @@ export async function syncFromJira(): Promise<SyncResult> {
     for (let i = 0; i < parsedSprints.length; i++) {
       const s = parsedSprints[i];
       if (existingCommitments.has(s.id)) continue;
-      const cutoff = committedCutoff(s.startDate);
+      // Cutoff = the exact moment Jira reports the sprint as started (i.e. when "Start Sprint"
+      // was clicked). Anything in the sprint AND in to-do/in-progress/blocked at that instant
+      // is committed. Skipping when now is before startedAt means future sprints don't freeze.
+      const cutoff = s.startedAt;
       if (!cutoff || now.getTime() < cutoff.getTime()) continue;
 
       const sprintIssues = allIssues[i].issues;
@@ -334,6 +399,36 @@ export async function syncFromJira(): Promise<SyncResult> {
               inArray(schema.tickets.sprintId, write.activeSprintIds),
             ),
           );
+      }
+
+      // Epics + their assignees. Order matters here: team_members upsert runs above (FK target
+      // for epic_assignees.assignee_id), then epics upsert (FK target for epic_assignees.epic_key),
+      // then we replace the epic_assignees rows for synced epics, then delete epics that no longer
+      // exist in Jira (cascade clears their epic_assignees rows).
+      if (epicUpserts.length > 0) {
+        await tx
+          .insert(schema.epics)
+          .values(epicUpserts)
+          .onConflictDoUpdate({
+            target: schema.epics.key,
+            set: {
+              title: sql`excluded.title`,
+              status: sql`excluded.status`,
+              ticketCount: sql`excluded.ticket_count`,
+              lastSyncedAt: sql`excluded.last_synced_at`,
+            },
+          });
+      }
+      if (activeEpicKeys.length > 0) {
+        await tx
+          .delete(schema.epicAssignees)
+          .where(inArray(schema.epicAssignees.epicKey, activeEpicKeys));
+      }
+      if (epicAssigneeRows.length > 0) {
+        await tx.insert(schema.epicAssignees).values(epicAssigneeRows).onConflictDoNothing();
+      }
+      if (activeEpicKeys.length > 0) {
+        await tx.delete(schema.epics).where(notInArray(schema.epics.key, activeEpicKeys));
       }
       if (write.burndownSnapshots.length > 0) {
         await tx
