@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMemo } from "react";
+import { useMemo, useTransition } from "react";
 import { AssigneeFilter } from "@/components/dashboard/assignee-filter";
 import { BurndownChart } from "@/components/dashboard/burndown-chart";
 import {
@@ -40,6 +40,7 @@ export function DashboardClient({
 }: Props) {
   const router = useRouter();
   const params = useSearchParams();
+  const [, startTransition] = useTransition();
 
   const assigneeIds = (params.get("assignees") ?? "").split(",").filter(Boolean);
   const kpis = useMemo(
@@ -94,7 +95,12 @@ export function DashboardClient({
       if (next.assigneeIds.length === 0) sp.delete("assignees");
       else sp.set("assignees", next.assigneeIds.join(","));
     }
-    router.replace(`/dashboard?${sp.toString()}`, { scroll: false });
+    // Wrap in a transition so React keeps the existing UI mounted while the server
+    // re-fetches — prevents the page-level Suspense fallback from flashing in,
+    // which was collapsing the layout and bouncing scroll to the top.
+    startTransition(() => {
+      router.replace(`/dashboard?${sp.toString()}`, { scroll: false });
+    });
   }
 
   const lastSyncLabel = lastSyncedAt
@@ -127,7 +133,7 @@ export function DashboardClient({
           <TabsTrigger value="epics">Epics</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="priorities" className="flex flex-col gap-4">
+        <TabsContent value="priorities" keepMounted className="flex flex-col gap-4">
           <AssigneeFilter
             team={team}
             value={assigneeIds}
@@ -136,7 +142,7 @@ export function DashboardClient({
           <TicketColumns tickets={visibleTickets} team={team} />
         </TabsContent>
 
-        <TabsContent value="epics">
+        <TabsContent value="epics" keepMounted>
           <EpicsPanel epics={epicSummaries} />
         </TabsContent>
       </Tabs>
