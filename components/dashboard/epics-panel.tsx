@@ -18,7 +18,8 @@ export const EPIC_STAGES = [
   { id: "pr", jiraStatus: "PR", label: "Peer Review" },
   { id: "in-qa", jiraStatus: "In QA", label: "QA" },
   { id: "design-review", jiraStatus: "Design Review", label: "Design Review" },
-  { id: "done", jiraStatus: "Done", label: "Ready for Release" },
+  { id: "ready-for-release", jiraStatus: "Ready for Release", label: "Ready for Release" },
+  { id: "done", jiraStatus: "Done", label: "Done" },
 ] as const;
 
 export type EpicStageId = (typeof EPIC_STAGES)[number]["id"];
