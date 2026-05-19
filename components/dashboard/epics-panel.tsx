@@ -153,6 +153,8 @@ export function EpicsPanel({ epics, initialStage = "building" }: Props) {
   );
 }
 
+const JIRA_BASE = "https://carevicinity.atlassian.net/browse";
+
 function EpicCard({ epic }: { epic: EpicSummary }) {
   const MAX_VISIBLE = 3;
   const visible = epic.assignees.slice(0, MAX_VISIBLE);
@@ -161,30 +163,38 @@ function EpicCard({ epic }: { epic: EpicSummary }) {
     epic.assignees.length === 0 ? "Unassigned" : epic.assignees.map((a) => a.name).join(", ");
 
   return (
-    <Card size="sm" className="transition-colors hover:bg-muted/40">
-      <CardHeader className="gap-1">
-        <div className="font-mono text-xs text-muted-foreground">{epic.key}</div>
-        <CardTitle className="text-sm leading-snug">{epic.title}</CardTitle>
-      </CardHeader>
-      <CardContent className="flex items-center justify-between gap-2">
-        <Badge variant="outline">
-          {epic.ticketCount} {epic.ticketCount === 1 ? "ticket" : "tickets"}
-        </Badge>
-        {epic.assignees.length === 0 ? (
-          <span className="text-xs text-muted-foreground">Unassigned</span>
-        ) : (
-          <AvatarGroup aria-label={assigneeSummary} title={assigneeSummary}>
-            {visible.map((a) => (
-              <Avatar key={a.id} size="sm">
-                <AvatarFallback className="text-[10px]">{a.initials}</AvatarFallback>
-              </Avatar>
-            ))}
-            {overflow > 0 ? (
-              <AvatarGroupCount className="size-6 text-[10px]">+{overflow}</AvatarGroupCount>
-            ) : null}
-          </AvatarGroup>
-        )}
-      </CardContent>
-    </Card>
+    <a
+      href={`${JIRA_BASE}/${epic.key}`}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`Open ${epic.key} in Jira: ${epic.title}`}
+      className="block rounded-xl transition-shadow hover:shadow-md"
+    >
+      <Card size="sm" className="transition-colors hover:bg-muted/40">
+        <CardHeader className="gap-1">
+          <div className="font-mono text-xs text-muted-foreground">{epic.key}</div>
+          <CardTitle className="text-sm leading-snug">{epic.title}</CardTitle>
+        </CardHeader>
+        <CardContent className="flex items-center justify-between gap-2">
+          <Badge variant="outline">
+            {epic.ticketCount} {epic.ticketCount === 1 ? "ticket" : "tickets"}
+          </Badge>
+          {epic.assignees.length === 0 ? (
+            <span className="text-xs text-muted-foreground">Unassigned</span>
+          ) : (
+            <AvatarGroup aria-label={assigneeSummary} title={assigneeSummary}>
+              {visible.map((a) => (
+                <Avatar key={a.id} size="sm">
+                  <AvatarFallback className="text-[10px]">{a.initials}</AvatarFallback>
+                </Avatar>
+              ))}
+              {overflow > 0 ? (
+                <AvatarGroupCount className="size-6 text-[10px]">+{overflow}</AvatarGroupCount>
+              ) : null}
+            </AvatarGroup>
+          )}
+        </CardContent>
+      </Card>
+    </a>
   );
 }
